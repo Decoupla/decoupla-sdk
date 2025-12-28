@@ -213,13 +213,16 @@ Synchronize your local schema with the backend.
 
 ```bash
 # Dry run - preview changes
-bunx decoupla sync --dry
+npx decoupla sync --dry   # npm
+bunx decoupla sync --dry  # bun
 
 # Apply changes with verbose output
-bunx decoupla sync --verbose
+npx decoupla sync --verbose   # npm
+bunx decoupla sync --verbose  # bun
 
 # Apply changes silently
-bunx decoupla sync
+npx decoupla sync   # npm
+bunx decoupla sync  # bun
 ```
 
 The sync command will:
@@ -233,7 +236,8 @@ The sync command will:
 Validate your schema definitions:
 
 ```bash
-bunx decoupla validate
+bunx decoupla validate  # bun
+npx decoupla validate   # npm
 ```
 
 ### `decoupla help`
@@ -241,7 +245,8 @@ bunx decoupla validate
 Show available commands:
 
 ```bash
-bunx decoupla help
+bunx decoupla help  # bun
+npx decoupla help   # npm
 ```
 
 ---
