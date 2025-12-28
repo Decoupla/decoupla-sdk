@@ -28,7 +28,7 @@
     }
   },
   "bin": {
-    "decoupla": "./bin/decoupla.cjs"
+    "decoupla": "bin/decoupla.cjs"
   },
   "files": [
     "dist",
