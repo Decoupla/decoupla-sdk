@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 'latest'
+
+      - name: Install dependencies
+        run: npm ci --silent --include=dev
+
+      - name: Build types
+        run: npm run build:types --silent
+
+      - name: Build JS (tsup)
+        run: npm run build:js --silent
+
+      - name: Run unit tests
+        run: npm run test:unit --silent
+
+      - name: Run type-level tests (tsd)
+        run: npm run test:types --silent

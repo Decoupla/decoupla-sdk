@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+/*
+  Wrapper script to run the decoupla CLI with sensible defaults for Node and Bun.
+
+  - If Bun is available, runs `bun dist/cli/index.js` for best compatibility with .ts configs.
+  - Otherwise runs Node. If `esbuild-register` is installed, it preloads it (`-r esbuild-register/dist/node`) so
+    users can point `--config decoupla.config.ts` and the CLI will load TypeScript configs.
+
+  This wrapper is installed as the package `bin` to give a consistent UX for users.
+*/
+
+const { spawnSync } = require('child_process');
+const path = require('path');
+
+function runCommand(cmd, args) {
+    const res = spawnSync(cmd, args, { stdio: 'inherit' });
+    process.exit(res.status === null ? 0 : res.status);
+}
+
+function hasCommand(cmd) {
+    try {
+        const probe = spawnSync(cmd, ['--version'], { stdio: 'ignore' });
+        return probe.status === 0 || probe.status === null;
+    } catch (_) {
+        return false;
+    }
+}
+
+async function main() {
+    const args = process.argv.slice(2);
+
+    // Prefer Bun if available in PATH
+    if (hasCommand('bun')) {
+        const bunPath = 'bun';
+        const entry = path.join(__dirname, '..', 'dist', 'cli', 'index.js');
+        runCommand(bunPath, [entry, ...args]);
+        return;
+    }
+
+    // Otherwise, run Node and try to preload esbuild-register if present
+    const node = process.execPath || 'node';
+    let preloadArg = null;
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        require.resolve('esbuild-register/dist/node');
+        preloadArg = 'esbuild-register/dist/node';
+    } catch (e) {
+        // not installed — we'll continue without preload, but warn when a .ts config is used
+        // (we cannot detect which config will be used here)
+    }
+
+    const entryCjs = path.join(__dirname, '..', 'dist', 'cli', 'index.cjs');
+
+    if (preloadArg) {
+        runCommand(node, ['-r', preloadArg, entryCjs, ...args]);
+    } else {
+        // No preloader available — just run the built CLI. If users want to use
+        // TypeScript configs (.ts), instruct them to install esbuild-register or use Bun.
+        if (args.some(a => a.endsWith('.ts') || a.includes('.ts'))) {
+            console.error('Warning: running without TypeScript loader. To use .ts configs with Node, install esbuild-register and try again:');
+            console.error('  npm i -D esbuild-register');
+            console.error('Or run the CLI with Bun which understands TypeScript files.');
+        }
+        runCommand(node, [entryCjs, ...args]);
+    }
+}
+
+main();
