@@ -116,6 +116,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
 
     const {
         op_type,
+        api_type,
         filters,
         type,
         preload,
@@ -133,15 +134,22 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
         direction: "ASC" | "DESC";
     }[] | undefined);
 
-    const requestBody = {
+    // Determine outgoing api_type: inspect doesn't require api_type and we default to 'live' for other ops
+    const outgoingApiType = op_type === 'inspect' ? undefined : (api_type ?? 'live');
+
+    const requestBody: any = {
         op_type,
         type,
+        // pass through entry_id when present (used by get_entry)
+        entry_id: (request as any).entry_id,
         filters,
         preload,
         sort: sendSort,
         limit,
         offset,
-    }
+    };
+
+    if (outgoingApiType) requestBody.api_type = outgoingApiType;
 
     const req = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
         method: 'POST',
@@ -568,6 +576,8 @@ const getEntry = (request: Request) =>
         entryId: string,
         options?: {
             preload?: P;
+            /** Preferred client option name: selects which dataset (live vs preview) to read. */
+            contentView?: 'live' | 'preview';
         }
     ): Promise<{ data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }> => {
         // For get_entry, entry_id is a top-level parameter, not in filters
@@ -611,40 +621,24 @@ const getEntry = (request: Request) =>
             return out;
         };
 
+        const chosenApiType = options?.contentView ?? 'live';
+
         const reqBody = {
             op_type: 'get_entry',
             type: contentTypeDef.__definition.name,
             entry_id: entryId,
             preload: normalizePreload(options?.preload || []),
-        };
+            api_type: chosenApiType,
+        } as any;
 
-    // DEBUG: log request body for get_entry
-    try { debug('[getEntry] request body:', JSON.stringify(reqBody)); } catch (e) { }
+        try { debug('[getEntry] request body:', JSON.stringify(reqBody)); } catch (e) { }
 
-        const resp = await fetch(`${DECOUPLA_API_URL_BASE}${process.env.DECOUPLA_WORKSPACE}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${process.env.DECOUPLA_API_TOKEN}`,
-            },
-            body: JSON.stringify(reqBody),
-        });
+        // Use the shared request helper which already handles auth/errors/parsing
+        const resp = await request(reqBody as any) as any;
 
-        const respData = await resp.json() as any;
+        try { debug('[getEntry] raw response:', JSON.stringify(resp, null, 2)); } catch (e) { }
 
-        // DEBUG: log raw response for get_entry to inspect preload behavior
-        try {
-            debug('[getEntry] raw response:', JSON.stringify(respData, null, 2));
-        } catch (e) { }
-
-        if ((respData as any).errors) {
-            console.error('Get Entry Error:', respData);
-            throw new Error(`API Error: ${(respData as any).errors.map((e: any) => e.message).join(', ')}`);
-        }
-
-        const entry = respData.data?.entry;
-
-        // Rely on server-side preload expansion. Client-side ID-to-object expansion has been removed.
+        const entry = resp?.data?.entry || resp?.data?.node;
 
         // Normalize snake_case field names to camelCase for the flat response
         const normalizedEntry: Record<string, any> = {};
@@ -654,7 +648,7 @@ const getEntry = (request: Request) =>
 
         return {
             data: normalizedEntry as BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata,
-        }
+        };
     }
 
 const inspect = (request: Request) =>
@@ -674,7 +668,8 @@ const getEntries = (request: Request) =>
             limit?: number;
             offset?: number;
             preload?: P;
-            sort?: [string, "ASC" | "DESC"]
+            sort?: [string, "ASC" | "DESC"];
+            contentView?: 'live' | 'preview';
         }
     ): Promise<EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>> => {
         const {
@@ -682,8 +677,11 @@ const getEntries = (request: Request) =>
             limit,
             offset,
             preload = [] as any,
-            sort = []
+            sort = [],
+            contentView: optContentView,
         } = options as any;
+
+        const api_type = optContentView ?? 'live';
 
         // Normalize preload shapes to the backend's nested-array grammar (same as getEntry)
         const normalizePreload = (p: any): any => {
@@ -863,19 +861,20 @@ const getEntries = (request: Request) =>
             console.warn('Failed to transform reference field filters:', error);
         }
 
-        const reqBody = {
+        const reqBody: any = {
             type: contentTypeDef.__definition.name,
             op_type: 'get_entries',
+            api_type,
             limit,
             offset,
             filters: backendFilters,
             preload: normalizePreload(preload),
             sort,
         };
-    try { debug('[getEntries] request body:', JSON.stringify(reqBody, null, 2)); } catch (e) { }
+        try { debug('[getEntries] request body:', JSON.stringify(reqBody, null, 2)); } catch (e) { }
         const resp = await request<any[]>(reqBody as any);
 
-    try { debug('[getEntries] raw response:', JSON.stringify(resp, null, 2)); } catch (e) { }
+        try { debug('[getEntries] raw response:', JSON.stringify(resp, null, 2)); } catch (e) { }
 
         // Normalize field names from snake_case to camelCase
         let normalizedEntries = (resp as any).data?.map((entry: any) => {
@@ -1587,12 +1586,20 @@ const normalizeEntryMetadata = (entry: EntryMetadata): NormalizedEntryMetadata =
 /**
  * Create a new entry (instance of a content type)
  */
-const createEntry = (options: InitSchema) => async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }>(
+const createEntry = (options: InitSchema) => async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined>(
     contentTypeDef: T,
     fieldValues: FieldValues,
-    published: boolean = true
+    // Backwards-compatible: callers historically passed a boolean `published` as the 3rd arg.
+    // New signature accepts an options object { published?, preload? }.
+    optionsParam?: boolean | {
+        published?: boolean;
+        preload?: P;
+    }
 ): Promise<NormalizedEntryMetadata> => {
     const { apiToken, workspace } = options;
+    // Normalize optionsParam to the object shape
+    const opts = typeof optionsParam === 'boolean' ? { published: optionsParam } : (optionsParam || {});
+    const published = opts.published ?? true;
 
     // Validate field values
     const validation = validateFieldValues(fieldValues);
@@ -1603,13 +1610,57 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
     // Normalize field values
     const normalizedFieldValues = normalizeFieldValues(fieldValues);
 
+    // Normalize preload shapes to the backend's nested-array grammar (same as getEntry/getEntries)
+    const normalizePreload = (p: any): any => {
+        if (!Array.isArray(p)) return p;
+        const out: any[] = [];
+        for (const item of p) {
+            if (typeof item === 'string') {
+                out.push(camelToSnake(item));
+                continue;
+            }
+            if (!Array.isArray(item)) {
+                out.push(item);
+                continue;
+            }
+            const [key, inner] = item;
+            // If inner is null/undefined, treat as simple string preload
+            if (inner == null) {
+                out.push(camelToSnake(key));
+                continue;
+            }
+
+            // Determine inner as an array of preload items.
+            let innerArr: any[];
+            if (typeof inner === 'string') {
+                innerArr = [inner];
+            } else if (Array.isArray(inner)) {
+                // If inner looks like a single tuple [string, ...], treat it as one item and wrap it.
+                if (inner.length === 2 && typeof inner[0] === 'string' && (Array.isArray(inner[1]) || inner[1] == null)) {
+                    innerArr = [inner];
+                } else {
+                    innerArr = inner;
+                }
+            } else {
+                innerArr = [inner];
+            }
+
+            out.push([camelToSnake(key), normalizePreload(innerArr)]);
+        }
+        return out;
+    };
+
     // Build request
-    const requestBody = {
+    const requestBody: any = {
         op_type: 'create_entry',
         type: contentTypeDef.__definition.name,
         field_values: normalizedFieldValues,
         published,
     };
+
+    if ((opts as any).preload) {
+        requestBody.preload = normalizePreload((opts as any).preload);
+    }
 
     // Make the request
     const response = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
@@ -1643,17 +1694,33 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         );
     }
 
+    // If preload was requested, return the full normalized entry (snake_case -> camelCase)
+    if ((opts as any).preload) {
+        const normalized: Record<string, any> = { id: entry.id };
+        for (const [key, value] of Object.entries(entry)) {
+            if (key !== 'id') {
+                normalized[snakeToCamel(key)] = value;
+            }
+        }
+        return { data: normalized } as any;
+    }
+
     return normalizeEntryMetadata(entry);
 };
 
 /**
  * Update an existing entry
  */
-const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }>(
+const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined>(
     contentTypeDef: T,
     entryId: string,
     fieldValues: FieldValues,
-    published?: boolean
+    // Backwards-compatible: callers historically passed a boolean `published` as the 4th arg.
+    // New signature accepts an options object { published?, preload? }.
+    optionsParam?: boolean | {
+        published?: boolean;
+        preload?: P;
+    }
 ): Promise<NormalizedEntryMetadata> => {
     const { apiToken, workspace } = options;
 
@@ -1678,9 +1745,51 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         field_values: normalizedFieldValues,
     };
 
+    // Normalize optionsParam to the object shape (back-compat boolean -> published)
+    const opts = typeof optionsParam === 'boolean' ? { published: optionsParam } : (optionsParam || {});
+
     // Add published if specified
-    if (published !== undefined) {
-        requestBody.published = published;
+    if ((opts as any).published !== undefined) {
+        requestBody.published = (opts as any).published;
+    }
+
+    // Normalize preload shapes to the backend's nested-array grammar (same as getEntry/getEntries)
+    const normalizePreload = (p: any): any => {
+        if (!Array.isArray(p)) return p;
+        const out: any[] = [];
+        for (const item of p) {
+            if (typeof item === 'string') {
+                out.push(camelToSnake(item));
+                continue;
+            }
+            if (!Array.isArray(item)) {
+                out.push(item);
+                continue;
+            }
+            const [key, inner] = item;
+            if (inner == null) {
+                out.push(camelToSnake(key));
+                continue;
+            }
+            let innerArr: any[];
+            if (typeof inner === 'string') {
+                innerArr = [inner];
+            } else if (Array.isArray(inner)) {
+                if (inner.length === 2 && typeof inner[0] === 'string' && (Array.isArray(inner[1]) || inner[1] == null)) {
+                    innerArr = [inner];
+                } else {
+                    innerArr = inner;
+                }
+            } else {
+                innerArr = [inner];
+            }
+            out.push([camelToSnake(key), normalizePreload(innerArr)]);
+        }
+        return out;
+    };
+
+    if ((opts as any).preload) {
+        requestBody.preload = normalizePreload((opts as any).preload);
     }
 
     debug(`[DEBUG] Update Entry Request:`, JSON.stringify(requestBody, null, 2));
@@ -1763,7 +1872,7 @@ export const createClient = (config: InitSchema) => {
     // Remote mutation helpers used by syncWithFields when invoked from the CLI.
     const createContentTypeRemote = async (ct: ContentTypeDefinition) => {
         const reqBody = buildCreateContentTypeRequest(ct);
-    debug('[sync] createContentType request:', JSON.stringify(reqBody));
+        debug('[sync] createContentType request:', JSON.stringify(reqBody));
         const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
             method: 'POST',
             headers: {
@@ -1773,7 +1882,7 @@ export const createClient = (config: InitSchema) => {
             body: JSON.stringify(reqBody),
         });
         const data = await resp.json().catch(() => null);
-    debug('[sync] createContentType response:', JSON.stringify(data));
+        debug('[sync] createContentType response:', JSON.stringify(data));
         if (!data || (data as any).errors) {
             throw new Error(`Failed to create content type ${ct.name}: ${JSON.stringify(data)}`);
         }
@@ -1782,7 +1891,7 @@ export const createClient = (config: InitSchema) => {
 
     const createFieldRemote = async (modelId: string, fieldName: string, fieldDef: FieldDefinition) => {
         const reqBody = buildCreateFieldRequest(modelId, fieldName, fieldDef);
-    debug('[sync] createField request:', JSON.stringify(reqBody));
+        debug('[sync] createField request:', JSON.stringify(reqBody));
         const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
             method: 'POST',
             headers: {
@@ -1792,7 +1901,7 @@ export const createClient = (config: InitSchema) => {
             body: JSON.stringify(reqBody),
         });
         const data = await resp.json().catch(() => null);
-    debug('[sync] createField response for', fieldName, JSON.stringify(data));
+        debug('[sync] createField response for', fieldName, JSON.stringify(data));
         if (!data || (data as any).errors) {
             throw new Error(`Failed to create field ${fieldName} on ${modelId}: ${JSON.stringify(data)}`);
         }
@@ -1801,7 +1910,7 @@ export const createClient = (config: InitSchema) => {
 
     const updateFieldRemote = async (fieldId: string, changes: Record<string, any>) => {
         const reqBody = buildUpdateFieldRequest(fieldId, changes);
-    debug('[sync] updateField request:', JSON.stringify(reqBody));
+        debug('[sync] updateField request:', JSON.stringify(reqBody));
         const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
             method: 'POST',
             headers: {
@@ -1811,7 +1920,7 @@ export const createClient = (config: InitSchema) => {
             body: JSON.stringify(reqBody),
         });
         const data = await resp.json().catch(() => null);
-    debug('[sync] updateField response for', fieldId, JSON.stringify(data));
+        debug('[sync] updateField response for', fieldId, JSON.stringify(data));
         if (!data || (data as any).errors) {
             throw new Error(`Failed to update field ${fieldId}: ${JSON.stringify(data)}`);
         }
@@ -1858,6 +1967,39 @@ export const createClient = (config: InitSchema) => {
         getEntries: getEntries(request),
         // Note: inline preload literal inference is supported by getEntries overloads.
         inspect: inspect(request),
+        /**
+         * Validate whether the current token can read the requested content view.
+         * Returns true when the view is accessible, false when an authorization error is returned.
+         * This helper inspects the remote for a content type and issues a harmless get_entries
+         * against that content type using the requested view; it treats a structured
+         * `{ errors: [{ field: 'authorization', ... }] }` as a permission failure.
+         */
+        validateContentView: async (view: 'live' | 'preview'): Promise<boolean> => {
+            try {
+                const inspectResp = await inspect(request)();
+                const firstCT = inspectResp.data.content_types && inspectResp.data.content_types[0];
+                if (!firstCT) return true; // nothing to check against
+                const typeName = firstCT.slug || firstCT.id;
+                // Call get_entries with limit 0/1 to avoid heavy payloads
+                const resp = await request({ op_type: 'get_entries', type: typeName, limit: 1, api_type: view } as any).catch((err: any) => ({ __err: err }));
+                if ((resp as any)?.__err) {
+                    // If the request failed at network/parse level, rethrow
+                    throw (resp as any).__err;
+                }
+                // If API responded with structured errors, detect authorization field
+                if ((resp as any).errors || (resp as any).data?.errors) {
+                    const errors = (resp as any).errors || (resp as any).data?.errors || [];
+                    return !errors.some((e: any) => e.field === 'authorization');
+                }
+                return true;
+            } catch (e: any) {
+                // If we receive an API error shape, inspect it
+                if (e && typeof e === 'object' && e.errors) {
+                    return !e.errors.some((er: any) => er.field === 'authorization');
+                }
+                throw e;
+            }
+        },
         sync: sync(request),
         syncWithFields: syncWithFieldsBound,
         upload: upload({ apiToken, workspace }),

@@ -329,6 +329,8 @@ export declare const createClient: (config: InitSchema) => {
         __fields: Record<string, FieldDefinition>;
     }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, options?: {
         preload?: P;
+        /** Preferred client option name: selects which dataset (live vs preview) to read. */
+        contentView?: "live" | "preview";
     }) => Promise<{
         data: BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata;
     }>;
@@ -342,8 +344,17 @@ export declare const createClient: (config: InitSchema) => {
         offset?: number;
         preload?: P;
         sort?: [string, "ASC" | "DESC"];
+        contentView?: "live" | "preview";
     }) => Promise<EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
     inspect: () => Promise<InspectResponse>;
+    /**
+     * Validate whether the current token can read the requested content view.
+     * Returns true when the view is accessible, false when an authorization error is returned.
+     * This helper inspects the remote for a content type and issues a harmless get_entries
+     * against that content type using the requested view; it treats a structured
+     * `{ errors: [{ field: 'authorization', ... }] }` as a permission failure.
+     */
+    validateContentView: (view: "live" | "preview") => Promise<boolean>;
     sync: (contentTypes: (ContentTypeDefinition | {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
@@ -355,12 +366,18 @@ export declare const createClient: (config: InitSchema) => {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }>(contentTypeDef: T, fieldValues: FieldValues, published?: boolean) => Promise<NormalizedEntryMetadata>;
+    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, fieldValues: FieldValues, optionsParam?: boolean | {
+        published?: boolean;
+        preload?: P;
+    }) => Promise<NormalizedEntryMetadata>;
     updateEntry: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }>(contentTypeDef: T, entryId: string, fieldValues: FieldValues, published?: boolean) => Promise<NormalizedEntryMetadata>;
+    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, fieldValues: FieldValues, optionsParam?: boolean | {
+        published?: boolean;
+        preload?: P;
+    }) => Promise<NormalizedEntryMetadata>;
     deleteContentType: (contentTypeId: string) => Promise<void>;
 };
 /**

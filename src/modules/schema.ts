@@ -33,6 +33,10 @@ const preloadType: z.ZodTypeAny = z.lazy(() =>
 export const requestSchema = z.object({
     type: z.string().optional(),
     op_type: z.enum(['get_entry', 'get_entries', 'inspect']),
+    // Which API surface to target when fetching entries. Defaults to 'live' in the client.
+    api_type: z.enum(['live', 'preview']).optional(),
+    // entry_id is required for get_entry operations (top-level param)
+    entry_id: z.string().optional(),
     filters: z.any().optional(),
     preload: preloadType.optional(),
     sort: z.array(z.tuple([z.string(), z.enum(['ASC', 'DESC'])])).optional(),

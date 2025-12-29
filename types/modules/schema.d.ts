@@ -14,6 +14,11 @@ export declare const requestSchema: z.ZodObject<{
         get_entries: "get_entries";
         inspect: "inspect";
     }>;
+    api_type: z.ZodOptional<z.ZodEnum<{
+        live: "live";
+        preview: "preview";
+    }>>;
+    entry_id: z.ZodOptional<z.ZodString>;
     filters: z.ZodOptional<z.ZodAny>;
     preload: z.ZodOptional<z.ZodType<unknown, unknown, z.core.$ZodTypeInternals<unknown, unknown>>>;
     sort: z.ZodOptional<z.ZodArray<z.ZodTuple<[z.ZodString, z.ZodEnum<{

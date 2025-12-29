@@ -1,9 +1,13 @@
+export type ApiType = 'live' | 'preview';
 export type EntryResponse<T> = {
+    api_type?: ApiType;
     data: {
-        node: T;
+        node?: T;
+        entry?: T;
     };
 };
 export type InspectResponse = {
+    api_type?: ApiType;
     data: {
         content_types: Array<{
             id: string;
@@ -22,6 +26,7 @@ export type InspectResponse = {
     };
 };
 export type EntriesResponse<T> = {
+    api_type?: ApiType;
     data: T[];
 };
 export type ErrorResponse = {

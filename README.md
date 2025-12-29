@@ -1,4 +1,4 @@
-# Decoupla.js
+# @decoupla/sdk
 
 A **type-safe TypeScript client** for the Decoupla headless CMS with integrated CLI tools for schema management and synchronization.
 
@@ -13,46 +13,32 @@ A **type-safe TypeScript client** for the Decoupla headless CMS with integrated 
 
 ### 1. Installation
 
-Install via npm (recommended) or Bun. The package name is taken from the npm package metadata.
+Install the package from npm (recommended) or with Bun/Yarn. The package name is
+`@decoupla/sdk` and includes both the TypeScript client and the CLI binary.
 
 ```bash
 # npm
+npm install @decoupla/sdk
 
-const Author = defineContentType({
-  name: 'author',
-  displayName: 'Author',
-  description: 'Blog post authors',
-  fields: {
-    Name: { type: 'string', required: true, isLabel: true },
-    Email: { type: 'string', required: false },
-    Bio: { type: 'text', required: false },
-  },
-});
+# yarn
+yarn add @decoupla/sdk
 
-const BlogPost = defineContentType({
-  name: 'blog_post',
-  displayName: 'Blog Post',
-  description: 'Published blog posts',
-  fields: {
-    Title: { type: 'string', required: true, isLabel: true },
-    Content: { type: 'text', required: true },
-    Author: {
-      type: 'reference',
-      required: false,
-      references: [Author],
-    },
-    IsPublished: { type: 'boolean', required: false },
-    ViewCount: { type: 'int', required: false },
-  },
-});
-
-// Export your configuration
-export default defineConfig({
-  workspace: process.env.DECOUPLA_WORKSPACE!,
-  apiToken: process.env.DECOUPLA_API_TOKEN!,
-  contentTypes: [Author, BlogPost],
-});
+# bun
+bun add @decoupla/sdk
 ```
+
+Notes:
+- The package exports TypeScript types; if you're using TypeScript the types are included.
+- The CLI (`decoupla`) is available via `npx decoupla ...` (npm) or `bunx decoupla ...` (Bun).
+
+After installing, continue to define your content types and configuration (see the
+"Content Type Definition" section below.
+
+### 2. Define Content Types
+
+Define your content types with `defineContentType` (see the "Content Type Definition" section).
+Keep your content type definitions exported from a central module (for example `src/content-types.ts`) so
+both your application code and `decoupla.config.ts` can import the same typed definitions.
 
 ### 3. Sync Your Schema
 
@@ -91,17 +77,30 @@ const posts = await client.getEntries(BlogPost, {
   limit: 10,
 });
 
-// Create an entry
-const newPost = await client.createEntry(BlogPost, {
+// NOTE:
+// The `published` option passed to `createEntry`/`updateEntry` is a server-side
+// command that tells the backend whether the entry should be published immediately.
+// Create an entry as draft (unpublished)
+
+const newPostMeta = await client.createEntry(BlogPost, {
   Title: 'My First Post',
   Content: 'Hello, World!',
-  IsPublished: false,
-});
+}, false);
 
-// Update an entry
-await client.updateEntry(BlogPost, newPost.id, {
-  IsPublished: true,
-});
+// Create an entry and request preloaded relations in the response
+const newPostWithPreload = await client.createEntry(BlogPost, {
+  Title: 'Post with Preload',
+  Content: 'This post requests preload',
+  Author: 'author-id-123',
+}, { published: true, preload: ['Author'] });
+
+// Note: when you pass `preload` the client will return the full normalized entry
+// inside a `{ data: ... }` payload so you can access `newPostWithPreload.data.author` directly.
+
+// Update an entry — provide an options object for publishing and preload behavior
+const updateResult = await client.updateEntry(BlogPost, newPostMeta.id, {
+  Title: 'My First Post (published)'
+}, { published: true, preload: ['Author'] });
 ```
 
 ---
@@ -133,6 +132,43 @@ const MyType = defineContentType({
 
 Note: `name` is the machine-facing slug used to identify the content type in the API and CLI. It will be normalized to snake_case by the config loader (e.g. "BlogPost" -> "blog_post", "My Type" -> "my_type"). `displayName` is optional and intended as a human-readable label shown in UIs and logs.
 ```
+
+**Important:** We strongly recommend using a `decoupla.config.ts` file to store your `workspace`, `apiToken`, and `contentTypes`.
+The CLI reads this file when you run `decoupla sync`, and keeping a central config ensures the CLI and your application share the same type definitions and settings.
+
+### decoupla.config.ts and contentTypes
+
+Your project should export a configuration file (usually `decoupla.config.ts`) that the CLI reads. The important piece is the `contentTypes` array — this is where you list the content type definitions created with `defineContentType`.
+
+Example `decoupla.config.ts`:
+
+```typescript
+import { defineConfig } from 'decoupla.js';
+import { Author, BlogPost, Category } from './content-types'; // your defineContentType exports
+
+export default defineConfig({
+  workspace: process.env.DECOUPLA_WORKSPACE!,
+  apiToken: process.env.DECOUPLA_API_TOKEN!,
+  contentTypes: [Author, BlogPost, Category],
+});
+```
+
+Notes:
+- The CLI (`decoupla sync`) reads the exported `contentTypes` array and uses it to compare and synchronize your local schema with the remote workspace.
+- Each item in `contentTypes` should be the result of `defineContentType(...)` (the library stores enough metadata to produce API requests and type-safe helpers).
+- Keep the file next to your content-type definitions (for example `src/content-types.ts`) and export each content type so both the CLI and your application code can import the same definitions.
+
+Using content type definitions in your application code:
+
+```typescript
+import { createClient } from '@decoupla/sdk';
+import { BlogPost } from './content-types'; // same defineContentType exported above
+
+const client = createClient({ workspace: '...', apiToken: '...' });
+
+const post = await client.getEntry(BlogPost, 'post-id', { preload: ['Author'] });
+```
+
 
 ### Field Types
 
@@ -199,7 +235,6 @@ Decoupla supports the following field types:
   required: true,              // Field must be provided
   isLabel: true,               // Use as display name
   options: ['active', 'inactive'],  // Restrict values (string/string[] only)
-  settings: { /* custom */ },  // Future: localization, validations, etc.
 }
 ```
 
@@ -268,15 +303,17 @@ const client = createClient({
 
 ```typescript
 {
-  getEntry: (contentTypeDef, entryId, options?) => Promise
-  getEntries: (contentTypeDef, options?) => Promise
-  createEntry: (contentTypeDef, fieldValues, published?) => Promise
-  updateEntry: (contentTypeDef, entryId, fieldValues, published?) => Promise
-  upload: (file, filename?) => Promise
-  inspect: () => Promise
-  sync: (contentTypes) => Promise
-  syncWithFields: (contentTypes, options?) => Promise
-  deleteContentType: (contentTypeName) => Promise
+  getEntry: (contentTypeDef, entryId, options?) => Promise<{ data: Entry }>
+  getEntries: (contentTypeDef, options?) => Promise<{ data: Entry[] }>
+  // createEntry/updateEntry accept an options object { published?: boolean; preload?: PreloadSpec }.
+  // When `preload` is provided the client returns the full normalized entry in `{ data: ... }`.
+  createEntry: (contentTypeDef, fieldValues, publishedOrOptions?) => Promise<NormalizedEntryMetadata | { data: Entry }>
+  updateEntry: (contentTypeDef, entryId, fieldValues, publishedOrOptions?) => Promise<NormalizedEntryMetadata | { data: Entry }>
+  upload: (file, filename?) => Promise<UploadResult>
+  inspect: () => Promise<InspectResponse>
+  sync: (contentTypes) => Promise<SyncResult>
+  syncWithFields: (contentTypes, options?) => Promise<SyncResult>
+  deleteContentType: (contentTypeName) => Promise<void>
 }
 ```
 
@@ -302,6 +339,21 @@ console.log(post.data.title); // Type-safe field access
 {
   preload?: string | string[]; // Fields to preload
 }
+```
+
+Note: you can now explicitly select which dataset you want to read using the `contentView` option.
+Acceptable values are `'live'` (published content) and `'preview'` (draft/unpublished data). The default is `'live'`.
+
+The client maps `contentView` to the server `api_type` parameter. Use `contentView: 'preview'` to
+request draft/unpublished data and `contentView: 'live'` for published data.
+
+Example:
+
+```typescript
+const postPreview = await client.getEntry(BlogPost, 'post-id-123', {
+  contentView: 'preview',
+  preload: [['Child', ['Child']]]
+});
 ```
 
 Preload supports a nested-array grammar for multi-level reference preloads. Example: to preload a reference field `Child` and then preload its `Child` field, use:
@@ -411,14 +463,24 @@ const results = await client.getEntries(BlogPost, {
 Create a new entry:
 
 ```typescript
-const entry = await client.createEntry(BlogPost, {
+// Boolean `published` positional arg
+const meta = await client.createEntry(BlogPost, {
   Title: 'My First Post',
   Content: 'Hello, World!',
-  IsPublished: false,
-});
+}, false);
 
-console.log(entry.id);        // Entry ID
-console.log(entry.createdAt); // Timestamp
+// Or use the options object to pass `published` and `preload`.
+// When `preload` is provided the client returns the full normalized entry
+// inside `{ data: ... }` so you can read relations directly.
+const created = await client.createEntry(BlogPost, {
+  Title: 'Post with relations',
+  Content: 'Post body',
+  Author: 'author-id-123',
+}, { published: true, preload: ['Author'] });
+
+// Access metadata or full data depending on call:
+console.log(meta.id);               // Entry metadata (no preload)
+console.log(created.data.author);   // Preloaded relation (if requested)
 ```
 
 **Returns:**
@@ -440,10 +502,16 @@ console.log(entry.createdAt); // Timestamp
 Update an existing entry:
 
 ```typescript
+// Backwards-compatible boolean `published` positional arg
+const updatedMeta = await client.updateEntry(BlogPost, 'post-id-123', {
+  ViewCount: 150,
+}, false);
+
+// Or use options object and request preload in the response
 const updated = await client.updateEntry(BlogPost, 'post-id-123', {
   ViewCount: 150,
-  IsPublished: true,
-});
+}, { published: true, preload: ['Author'] });
+// If preload was requested updated will be { data: { ...full entry... } }
 ```
 
 ### `upload(file, filename?)`
@@ -803,15 +871,3 @@ TypeScript enforces correct filter operations per field type:
 { Title: { eq: 'hello' } }
 { ViewCount: { gte: 100 } }
 ```
-
----
-
-## Contributing
-
-Contributions are welcome! Please check the [CONTRIBUTING.md](./CONTRIBUTING.md) file.
-
----
-
-## License
-
-MIT © 2024 Decoupla
