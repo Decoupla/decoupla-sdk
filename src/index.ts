@@ -1170,6 +1170,7 @@ const syncWithFields = (request: Request) => {
                 is_label: boolean;
                 required: boolean;
                 reference_types?: string[];
+                options?: string[];
             }>;
         }>();
 
@@ -1188,6 +1189,7 @@ const syncWithFields = (request: Request) => {
                         is_label: f.is_label,
                         required: f.required,
                         reference_types: referenceNames,
+                        options: f.options,
                     });
                 });
 
@@ -1330,10 +1332,7 @@ const syncWithFields = (request: Request) => {
                 const changes: any = {};
 
                 if (remoteField.type !== fdef.type) {
-                    changes.type = {
-                        existing: remoteField.type,
-                        desired: fdef.type,
-                    };
+                    throw new Error(`Field type mismatch for field "${fname}" in content type "${ct.name}". Remote type: "${remoteField.type}", Desired type: "${fdef.type}". Field types cannot be changed once created.`);
                 }
 
                 const desiredRequired = fdef.required ?? false;
@@ -1351,6 +1350,29 @@ const syncWithFields = (request: Request) => {
                         desired: desiredIsLabel,
                     };
                 }
+                const desiredOptions = fdef.options
+
+                const remoteOptions = remoteField.options;
+                const remoteOptionsMap = Object.fromEntries((remoteOptions || []).map((opt: string) => [opt, true]));
+
+                let optionsChanged = false;
+                if ((desiredOptions || []).length !== (remoteOptions || []).length) {
+                    optionsChanged = true;
+                } else {
+                    for (const opt of desiredOptions || []) {
+                        if (!remoteOptionsMap[opt]) {
+                            optionsChanged = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (optionsChanged) {
+                    changes.options = {
+                        existing: remoteOptions,
+                        desired: desiredOptions,
+                    };
+                }
 
                 if ((fdef.type === 'reference' || fdef.type === 'reference[]') && fdef.references) {
                     const desiredReferences = fdef.references
@@ -1366,6 +1388,9 @@ const syncWithFields = (request: Request) => {
                     }
                 }
 
+
+                console.log('Determined changes for field', fname, changes);
+
                 if (Object.keys(changes).length > 0) {
                     fieldDiffs.push({
                         field: fname,
@@ -1373,10 +1398,23 @@ const syncWithFields = (request: Request) => {
                         changes,
                     });
                     if (updateFields && updateField) {
-                        const updateChanges: any = {
+                        const updateChanges: {
+                            required?: boolean;
+                            description?: string;
+                            isLabel?: boolean;
+                            options?: string[];
+                            references?: string[];
+                        } = {
                             required: desiredRequired,
                             description: fdef.settings?.description,
                         };
+
+                        if (changes.options) {
+                            updateChanges.options = desiredOptions;
+                        }
+                        if (changes.isLabel) {
+                            updateChanges.isLabel = desiredIsLabel;
+                        }
 
                         // Include reference types if the field is a reference type and references are defined
                         if ((fdef.type === 'reference' || fdef.type === 'reference[]') && fdef.references && changes.references) {
@@ -1392,6 +1430,8 @@ const syncWithFields = (request: Request) => {
                     }
                 }
             }
+
+            console.log('Fields to update', fieldsToUpdate);
 
             // Check for extra fields in remote
             for (const [remoteFieldSlug, remoteField] of remoteFields) {
@@ -1616,8 +1656,8 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         const keyMap = new Map<string, string>();
         for (const defKey of Object.keys(fieldDefs)) {
             keyMap.set(defKey, defKey);
-            try { keyMap.set(camelToSnake(defKey), defKey); } catch (e) {}
-            try { keyMap.set(snakeToCamel(camelToSnake(defKey)), defKey); } catch (e) {}
+            try { keyMap.set(camelToSnake(defKey), defKey); } catch (e) { }
+            try { keyMap.set(snakeToCamel(camelToSnake(defKey)), defKey); } catch (e) { }
         }
 
         for (const [k, v] of Object.entries(normalizedFieldValues)) {
@@ -1663,8 +1703,8 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         const keyMap = new Map<string, string>();
         for (const defKey of Object.keys(fieldDefs)) {
             keyMap.set(defKey, defKey);
-            try { keyMap.set(camelToSnake(defKey), defKey); } catch (e) {}
-            try { keyMap.set(snakeToCamel(camelToSnake(defKey)), defKey); } catch (e) {}
+            try { keyMap.set(camelToSnake(defKey), defKey); } catch (e) { }
+            try { keyMap.set(snakeToCamel(camelToSnake(defKey)), defKey); } catch (e) { }
         }
 
         for (const [k, v] of Object.entries(normalizedFieldValues)) {
@@ -2000,6 +2040,7 @@ export const createClient = (config: InitSchema) => {
     const updateFieldRemote = async (fieldId: string, changes: Record<string, any>) => {
         const reqBody = buildUpdateFieldRequest(fieldId, changes);
         debug('[sync] updateField request:', JSON.stringify(reqBody));
+        console.log('Updating field', fieldId, 'with changes', reqBody, changes);
         const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
             method: 'POST',
             headers: {
