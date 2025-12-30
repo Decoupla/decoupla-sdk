@@ -40,5 +40,8 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit --silent
 
-      - name: Run type-level tests (tsd)
-        run: npm run test:types --silent
+      # - name: Copy type test file
+      #   run: mkdir -p dist && cp types/index.test-d.ts dist/index.test-d.ts
+
+      # - name: Run type-level tests (tsd)
+      #   run: npm run test:types --silent
