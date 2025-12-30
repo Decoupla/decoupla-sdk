@@ -1388,9 +1388,6 @@ const syncWithFields = (request: Request) => {
                     }
                 }
 
-
-                console.log('Determined changes for field', fname, changes);
-
                 if (Object.keys(changes).length > 0) {
                     fieldDiffs.push({
                         field: fname,
@@ -1430,8 +1427,6 @@ const syncWithFields = (request: Request) => {
                     }
                 }
             }
-
-            console.log('Fields to update', fieldsToUpdate);
 
             // Check for extra fields in remote
             for (const [remoteFieldSlug, remoteField] of remoteFields) {
@@ -2040,7 +2035,6 @@ export const createClient = (config: InitSchema) => {
     const updateFieldRemote = async (fieldId: string, changes: Record<string, any>) => {
         const reqBody = buildUpdateFieldRequest(fieldId, changes);
         debug('[sync] updateField request:', JSON.stringify(reqBody));
-        console.log('Updating field', fieldId, 'with changes', reqBody, changes);
         const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
             method: 'POST',
             headers: {

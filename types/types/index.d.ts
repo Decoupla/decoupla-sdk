@@ -19,6 +19,7 @@ export type InspectResponse = {
                     reference_types: string[];
                 };
                 type: FieldType;
+                options?: string[];
                 is_label: boolean;
                 required: boolean;
             }>;

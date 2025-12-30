@@ -1,6 +1,6 @@
 {
   "name": "@decoupla/sdk",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Type-safe TypeScript client for the Decoupla content management API",
   "author": "Decoupla",
   "repository": {
