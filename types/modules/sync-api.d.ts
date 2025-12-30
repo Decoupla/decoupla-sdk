@@ -15,6 +15,7 @@ export type CreateFieldRequest = {
     control?: string;
     required?: boolean;
     description?: string;
+    is_label?: boolean;
     meta?: Record<string, any>;
 };
 export type UpdateFieldRequest = {
@@ -23,6 +24,7 @@ export type UpdateFieldRequest = {
     name?: string;
     required?: boolean;
     description?: string;
+    is_label?: boolean;
     meta?: Record<string, any>;
 };
 export type DeleteFieldRequest = {

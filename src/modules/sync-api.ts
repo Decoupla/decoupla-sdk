@@ -18,6 +18,8 @@ export type CreateFieldRequest = {
     control?: string;
     required?: boolean;
     description?: string;
+    is_label?: boolean;
+    options?: string[];
     meta?: Record<string, any>;
 };
 
@@ -27,6 +29,8 @@ export type UpdateFieldRequest = {
     name?: string;
     required?: boolean;
     description?: string;
+    is_label?: boolean;
+    options?: string[] | null;
     meta?: Record<string, any>;
 };
 
@@ -236,6 +240,8 @@ export function buildCreateFieldRequest(
         control,
         required: fieldDef.required ?? false,
         description: fieldDef.settings?.description,
+        is_label: fieldDef.isLabel ?? false,
+        options: fieldDef.options,
         meta: Object.keys(meta).length > 0 ? meta : undefined,
     };
 }
@@ -260,6 +266,13 @@ export function buildUpdateFieldRequest(
     }
     if (changes.description !== undefined) {
         request.description = changes.description;
+    }
+    if (changes.isLabel !== undefined) {
+        request.is_label = !!changes.isLabel;
+    }
+    // Support updating options for enum-like fields via changes.options (root-level)
+    if (changes.options !== undefined) {
+        request.options = changes.options as any; // allow explicit null to clear options
     }
     // Support updating reference types via changes.references or changes.meta
     if (changes.references !== undefined) {
