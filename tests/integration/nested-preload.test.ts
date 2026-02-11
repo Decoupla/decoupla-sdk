@@ -5,12 +5,9 @@ import { LevelOneContentType, LevelTwoContentType, LevelThreeContentType } from 
 const API_TOKEN = process.env.DECOUPLA_API_TOKEN || "";
 const WORKSPACE = process.env.DECOUPLA_WORKSPACE || "";
 
-if (!API_TOKEN || !WORKSPACE) {
-    console.error('Missing DECOUPLA_API_TOKEN or DECOUPLA_WORKSPACE');
-    process.exit(1);
-}
+const skip = !API_TOKEN || !WORKSPACE;
 
-describe("Nested preload support", () => {
+(skip ? describe.skip : describe)("Nested preload support", () => {
     const client = createClient({ apiToken: API_TOKEN, workspace: WORKSPACE });
     it("creates a 3-level chain and preloads all 3 levels via nested-array preload", async () => {
         // No provisioning required here; test uses existing test fixtures.

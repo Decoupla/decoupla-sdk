@@ -85,9 +85,9 @@ type FieldTypeValue = {
     'int': number | number[];
     'float': number | number[];
     'boolean': boolean;
-    'date': string | [string, string]; // ISO date string or [from, to] for between/outside
-    'time': string | [string, string];
-    'datetime': string | [string, string];
+    'date': string | { lower: string; upper: string }; // ISO date string or { lower, upper } for between/outside
+    'time': string | { lower: string; upper: string };
+    'datetime': string | { lower: string; upper: string };
     'reference': string | string[];
     'string[]': never;
     'int[]': never;
@@ -211,8 +211,8 @@ type NumericFieldOps =
     | { gte: number }
     | { lt: number }
     | { lte: number }
-    | { between: [number, number] }
-    | { outside: [number, number] }
+    | { between: { lower: number; upper: number } }
+    | { outside: { lower: number; upper: number } }
     | { in: number[] }
     | { not_in: number[] };
 
@@ -225,8 +225,8 @@ type DateTimeFieldOps =
     | { gte: string }
     | { lt: string }
     | { lte: string }
-    | { between: [string, string] }
-    | { outside: [string, string] };
+    | { between: { lower: string; upper: string } }
+    | { outside: { lower: string; upper: string } };
 
 /**
  * Helper type to extract the definition from a branded content type or return as-is if it's a definition

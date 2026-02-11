@@ -1,6 +1,6 @@
 {
   "name": "@decoupla/sdk",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Type-safe TypeScript client for the Decoupla content management API",
   "author": "Decoupla",
   "repository": {
@@ -50,19 +50,22 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "tsd": "^0.27.0",
+    "tsd": "^0.33.0",
     "tsup": "^6.6.0"
   },
   "optionalDependencies": {
-    "esbuild-register": "^3.4.0",
-    "esbuild": "^0.18.0"
+    "esbuild": "^0.18.0",
+    "esbuild-register": "^3.4.0"
   },
   "dependencies": {
-    "zod": "^4.1.13",
-    "typescript": "^5.5.0"
+    "typescript": "^5",
+    "zod": "^4.1.13"
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "tsd": {
+    "directory": "types"
   },
   "keywords": [
     "cms",

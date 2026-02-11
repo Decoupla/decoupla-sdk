@@ -31,11 +31,11 @@
  *   const entry = await client.createEntry('author', { Name: 'John' });
  */
 import { type InitSchema, type RequestSchema } from "./modules/schema";
-import type { EntryResponse, EntriesResponse, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
+import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
 import type { UploadedFile, ImageFile, VideoFile } from "./modules/upload";
 import type { FieldValues, EntryMetadata, NormalizedEntryMetadata } from "./modules/entry";
 import type { TypeSafeFilters } from "./modules/filters";
-export type { EntryResponse, EntriesResponse, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
+export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
 declare const makeRequest: (options: InitSchema) => <T>(request: RequestSchema) => Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse>;
 type Request = ReturnType<typeof makeRequest>;
 /**
@@ -338,14 +338,15 @@ export declare const createClient: (config: InitSchema) => {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, options: {
+    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(contentTypeDef: T, options: {
         filters: TypeSafeFilters<T>;
         limit?: number;
         offset?: number;
         preload?: P;
         sort?: [string, "ASC" | "DESC"];
         contentView?: "live" | "preview";
-    }) => Promise<EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
+        returnCount?: RC;
+    }) => Promise<RC extends true ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T["__fields"], P>> : EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
     inspect: () => Promise<InspectResponse>;
     /**
      * Validate whether the current token can read the requested content view.
@@ -369,7 +370,9 @@ export declare const createClient: (config: InitSchema) => {
     }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, fieldValues: FieldValues, optionsParam?: boolean | {
         published?: boolean;
         preload?: P;
-    }) => Promise<NormalizedEntryMetadata>;
+    }) => Promise<P extends undefined ? NormalizedEntryMetadata : {
+        data: BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata;
+    }>;
     updateEntry: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;

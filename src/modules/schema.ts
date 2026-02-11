@@ -42,6 +42,7 @@ export const requestSchema = z.object({
     sort: z.array(z.tuple([z.string(), z.enum(['ASC', 'DESC'])])).optional(),
     limit: z.number().int().min(1).optional(),
     offset: z.number().int().min(0).optional(),
+    return_count: z.boolean().optional(),
 })
 
 export type RequestSchema = z.infer<typeof requestSchema>;

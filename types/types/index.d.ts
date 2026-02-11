@@ -30,6 +30,11 @@ export type EntriesResponse<T> = {
     api_type?: ApiType;
     data: T[];
 };
+export type EntriesResponseWithCount<T> = {
+    api_type?: ApiType;
+    data: T[];
+    count: number;
+};
 export type ErrorResponse = {
     errors: Array<{
         field: string;

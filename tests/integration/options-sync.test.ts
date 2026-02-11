@@ -83,7 +83,7 @@ describe('Integration: sync field is_label', () => {
 
     beforeAll(() => {
         const apiToken = process.env.DECOUPLA_API_TOKEN!;
-        const workspace = process.env.DECOUPLA_WORKSPACE!!;
+        const workspace = process.env.DECOUPLA_WORKSPACE!;
 
         client = createClient({ apiToken, workspace });
         // Use timestamp for uniqueness
@@ -165,7 +165,7 @@ describe('Integration: sync field is_label and options via update', () => {
 
     beforeAll(() => {
         const apiToken = process.env.DECOUPLA_API_TOKEN!;
-        const workspace = process.env.DECOUPLA_WORKSPACE!!;
+        const workspace = process.env.DECOUPLA_WORKSPACE!;
 
         client = createClient({ apiToken, workspace });
         // Use timestamp for uniqueness
@@ -245,7 +245,7 @@ describe('Integration: should throw error when changing field type', () => {
 
     beforeAll(() => {
         const apiToken = process.env.DECOUPLA_API_TOKEN!;
-        const workspace = process.env.DECOUPLA_WORKSPACE!!;
+        const workspace = process.env.DECOUPLA_WORKSPACE!;
 
         client = createClient({ apiToken, workspace });
         // Use timestamp for uniqueness

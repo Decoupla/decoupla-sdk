@@ -13,15 +13,12 @@ import { expect, test, describe } from "bun:test";
 import { createClient } from "../../src";
 import { AuthorContentType, CategoryContentType, BlogPostContentType } from "../decoupla.config";
 
-const API_TOKEN = process.env.DECOUPLA_API_TOKEN;
-const WORKSPACE = process.env.DECOUPLA_WORKSPACE;
+const API_TOKEN = process.env.DECOUPLA_API_TOKEN || '';
+const WORKSPACE = process.env.DECOUPLA_WORKSPACE || '';
 
-if (!API_TOKEN || !WORKSPACE) {
-    console.error('Missing DECOUPLA_API_TOKEN or DECOUPLA_WORKSPACE');
-    process.exit(1);
-}
+const skip = !API_TOKEN || !WORKSPACE;
 
-describe("Entry Operations", () => {
+(skip ? describe.skip : describe)("Entry Operations", () => {
     const config = createClient({
         apiToken: API_TOKEN,
         workspace: WORKSPACE

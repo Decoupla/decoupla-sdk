@@ -146,9 +146,15 @@ type NumericFieldOps = {
 } | {
     lte: number;
 } | {
-    between: [number, number];
+    between: {
+        lower: number;
+        upper: number;
+    };
 } | {
-    outside: [number, number];
+    outside: {
+        lower: number;
+        upper: number;
+    };
 } | {
     in: number[];
 } | {
@@ -171,9 +177,15 @@ type DateTimeFieldOps = {
 } | {
     lte: string;
 } | {
-    between: [string, string];
+    between: {
+        lower: string;
+        upper: string;
+    };
 } | {
-    outside: [string, string];
+    outside: {
+        lower: string;
+        upper: string;
+    };
 };
 /**
  * Helper type to extract the definition from a branded content type or return as-is if it's a definition

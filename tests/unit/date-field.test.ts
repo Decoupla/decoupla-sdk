@@ -20,7 +20,7 @@ describe('date field formatting', () => {
         const Event = defineContentType({ name: 'event', fields: { StartDate: { type: 'date', required: true } } });
 
         const inputDate = new Date('2025-12-29T15:30:00Z');
-        const meta = await client.createEntry(Event, { StartDate: inputDate }, false as any);
+        const meta = await client.createEntry(Event, { StartDate: inputDate }, false);
 
         expect(recordedBody).toBeTruthy();
         const expected = (() => {
@@ -45,7 +45,7 @@ describe('date field formatting', () => {
         const Event = defineContentType({ name: 'event', fields: { StartDate: { type: 'date', required: true } } });
 
         const dateStr = '2025-12-29';
-        const meta = await client.createEntry(Event, { StartDate: dateStr }, false as any);
+        const meta = await client.createEntry(Event, { StartDate: dateStr }, false);
 
         expect(recordedBody).toBeTruthy();
         expect(recordedBody.field_values.StartDate).toBe(dateStr);

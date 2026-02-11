@@ -35,6 +35,7 @@ import { initSchema, requestSchema, type InitSchema, type RequestSchema, snakeTo
 import type {
     EntryResponse,
     EntriesResponse,
+    EntriesResponseWithCount,
     ErrorResponse,
     InspectResponse,
     ImageObject,
@@ -83,6 +84,7 @@ import { debug } from './utils/logger';
 export type {
     EntryResponse,
     EntriesResponse,
+    EntriesResponseWithCount,
     ErrorResponse,
     InspectResponse,
     ImageObject,
@@ -123,6 +125,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
         sort,
         limit,
         offset,
+        return_count,
     } = requestSchema.parse(request);
 
     const sendSort = (sort || []).reduce((acc, [field, direction]) => {
@@ -147,6 +150,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
         sort: sendSort,
         limit,
         offset,
+        return_count,
     };
 
     if (outgoingApiType) requestBody.api_type = outgoingApiType;
@@ -661,7 +665,7 @@ const inspect = (request: Request) =>
     }
 
 const getEntries = (request: Request) =>
-    async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined>(
+    async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(
         contentTypeDef: T,
         options: {
             filters: TypeSafeFilters<T>;
@@ -670,8 +674,13 @@ const getEntries = (request: Request) =>
             preload?: P;
             sort?: [string, "ASC" | "DESC"];
             contentView?: 'live' | 'preview';
+            returnCount?: RC;
         }
-    ): Promise<EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>> => {
+    ): Promise<
+        RC extends true
+            ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
+            : EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
+    > => {
         const {
             filters,
             limit,
@@ -679,6 +688,7 @@ const getEntries = (request: Request) =>
             preload = [] as any,
             sort = [],
             contentView: optContentView,
+            returnCount: optReturnCount,
         } = options as any;
 
         const api_type = optContentView ?? 'live';
@@ -870,14 +880,28 @@ const getEntries = (request: Request) =>
             filters: backendFilters,
             preload: normalizePreload(preload),
             sort,
+            return_count: optReturnCount || undefined,
         };
         try { debug('[getEntries] request body:', JSON.stringify(reqBody, null, 2)); } catch (e) { }
         const resp = await request<any[]>(reqBody as any);
 
         try { debug('[getEntries] raw response:', JSON.stringify(resp, null, 2)); } catch (e) { }
 
+        // When return_count is true, backend responds with { data: { entries: [...], count: N } }
+        // instead of the default { data: [...entries] }.
+        const rawData = (resp as any).data;
+        let rawEntries: any[];
+        let count: number | undefined;
+
+        if (optReturnCount && rawData && !Array.isArray(rawData)) {
+            rawEntries = rawData.entries || [];
+            count = rawData.count;
+        } else {
+            rawEntries = rawData || [];
+        }
+
         // Normalize field names from snake_case to camelCase
-        let normalizedEntries = (resp as any).data?.map((entry: any) => {
+        let normalizedEntries = rawEntries.map((entry: any) => {
             const normalized: Record<string, any> = { id: entry.id };
             for (const [key, value] of Object.entries(entry)) {
                 if (key !== 'id') {
@@ -890,10 +914,18 @@ const getEntries = (request: Request) =>
         // Rely on server-side preload expansion for get_entries responses. Client-side per-entry
         // expansion/fetching has been removed to avoid extra round-trips.
 
+        if (optReturnCount) {
+            return {
+                ...resp,
+                data: normalizedEntries,
+                count: count ?? 0,
+            } as any;
+        }
+
         return {
             ...resp,
-            data: normalizedEntries
-        } as EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>;
+            data: normalizedEntries,
+        } as any;
     };
 
 const sync = (request: Request) => {
@@ -1630,7 +1662,11 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         published?: boolean;
         preload?: P;
     }
-): Promise<NormalizedEntryMetadata> => {
+): Promise<
+    P extends undefined
+        ? NormalizedEntryMetadata
+        : { data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }
+> => {
     const { apiToken, workspace } = options;
     // Normalize optionsParam to the object shape
     const opts = typeof optionsParam === 'boolean' ? { published: optionsParam } : (optionsParam || {});
@@ -1829,7 +1865,7 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         return { data: normalized } as any;
     }
 
-    return normalizeEntryMetadata(entry);
+    return normalizeEntryMetadata(entry) as any;
 };
 
 /**
@@ -1845,7 +1881,11 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         published?: boolean;
         preload?: P;
     }
-): Promise<NormalizedEntryMetadata> => {
+): Promise<
+    P extends undefined
+        ? NormalizedEntryMetadata
+        : { data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }
+> => {
     const { apiToken, workspace } = options;
 
     // Validate entry ID
@@ -1916,8 +1956,6 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         requestBody.preload = normalizePreload((opts as any).preload);
     }
 
-    debug(`[DEBUG] Update Entry Request:`, JSON.stringify(requestBody, null, 2));
-
     // Make the request
     const response = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
         method: 'POST',
@@ -1950,7 +1988,18 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         );
     }
 
-    return normalizeEntryMetadata(entry);
+    // If preload was requested, return the full normalized entry (snake_case -> camelCase)
+    if ((opts as any).preload) {
+        const normalized: Record<string, any> = { id: entry.id };
+        for (const [key, value] of Object.entries(entry)) {
+            if (key !== 'id') {
+                normalized[snakeToCamel(key)] = value;
+            }
+        }
+        return { data: normalized } as any;
+    }
+
+    return normalizeEntryMetadata(entry) as any;
 };
 
 /**

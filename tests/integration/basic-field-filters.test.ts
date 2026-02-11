@@ -92,19 +92,6 @@ describe("Basic Field Type Filters", () => {
         console.log(`✅ Boolean field filtering works - found ${entries.data.length} published posts`);
     });
 
-    it("should demonstrate type safety prevents invalid operations", async () => {
-        console.log("\n🔍 Demonstrating compile-time type safety...");
-
-        const validFilters1 = { Title: { contains: "text" } };
-        const validFilters2 = { IsPublished: { eq: true } };
-        const validFilters3 = { Title: { starts_with: "prefix" } };
-
-        expect(validFilters1).toBeDefined();
-        expect(validFilters2).toBeDefined();
-        expect(validFilters3).toBeDefined();
-        console.log(`✅ Type-safe filter validation prevents invalid operations at compile-time`);
-    });
-
     it("should auto-convert camelCase field names to snake_case", async () => {
         console.log("\n🔍 Testing automatic camelCase to snake_case conversion...");
 
@@ -151,42 +138,39 @@ describe("Basic Field Type Filters", () => {
     it("should filter by float field (Price) with numeric operations", async () => {
         console.log("\n🔍 Testing float field filtering (Price >= 10.50)...");
 
-        try {
-            const product1 = await config.createEntry(ProductContentType, {
-                Name: "Expensive Product",
-                Slug: "expensive-product",
-                Description: "A high-priced item",
-                Price: 99.99,
-                StockQuantity: 5,
-                IsAvailable: true,
-            });
+        const ts = Date.now();
+        await config.createEntry(ProductContentType, {
+            Name: `Expensive Product ${ts}`,
+            Slug: `expensive-product-${ts}`,
+            Description: "A high-priced item",
+            Price: 99.99,
+            StockQuantity: 5,
+            IsAvailable: true,
+        });
 
-            const product2 = await config.createEntry(ProductContentType, {
-                Name: "Cheap Product",
-                Slug: "cheap-product",
-                Description: "An affordable item",
-                Price: 5.99,
-                StockQuantity: 100,
-                IsAvailable: true,
-            });
+        await config.createEntry(ProductContentType, {
+            Name: `Cheap Product ${ts}`,
+            Slug: `cheap-product-${ts}`,
+            Description: "An affordable item",
+            Price: 5.99,
+            StockQuantity: 100,
+            IsAvailable: true,
+        });
 
-            const entries = await config.getEntries(ProductContentType, {
-                filters: {
-                    Price: { gte: 10.50 }
-                },
-            });
+        const entries = await config.getEntries(ProductContentType, {
+            filters: {
+                Price: { gte: 10.50 }
+            },
+        });
 
-            expect(entries.data).toBeDefined();
-            expect(entries.data.length).toBeGreaterThan(0);
-            expect(entries.data.every((product) => {
-                const price = product.price;
-                return typeof price === 'number' && price >= 10.50;
-            })).toBe(true);
+        expect(entries.data).toBeDefined();
+        expect(entries.data.length).toBeGreaterThan(0);
+        expect(entries.data.every((product) => {
+            const price = product.price;
+            return typeof price === 'number' && price >= 10.50;
+        })).toBe(true);
 
-            console.log(`✅ Float field filtering works - found ${entries.data.length} products with price >= 10.50`);
-        } catch (error) {
-            console.log(`⏳ Float field filtering test: ${(error as Error).message}`);
-        }
+        console.log(`✅ Float field filtering works - found ${entries.data.length} products with price >= 10.50`);
     });
 
     it("should filter by datetime field", async () => {
@@ -250,27 +234,24 @@ describe("Basic Field Type Filters", () => {
     it("should filter by slug field", async () => {
         console.log("\n🔍 Testing slug field filtering...");
 
-        try {
-            const entries = await config.getEntries(ProductContentType, {
-                filters: {
-                    Slug: { eq: "expensive-product" }
-                },
-            });
+        const ts = Date.now();
+        await config.createEntry(ProductContentType, {
+            Name: `Slug Test Product ${ts}`,
+            Slug: `slug-test-${ts}`,
+            Price: 10.00,
+            IsAvailable: true,
+        });
 
-            expect(entries.data).toBeDefined();
+        const entries = await config.getEntries(ProductContentType, {
+            filters: {
+                Slug: { eq: `slug-test-${ts}` }
+            },
+        });
 
-            if (entries.data.length > 0) {
-                expect(entries.data.every((product) => product.slug === "expensive-product")).toBe(true);
-            }
+        expect(entries.data).toBeDefined();
+        expect(entries.data.length).toBeGreaterThan(0);
+        expect(entries.data.every((product) => product.slug === `slug-test-${ts}`)).toBe(true);
 
-            console.log(`✅ Slug field filtering works - found ${entries.data.length} products with slug "expensive-product"`);
-        } catch (error) {
-            const errorMsg = (error as Error).message;
-            if (errorMsg.includes("Invalid filter field")) {
-                console.log(`⏳ Slug field filtering not supported by backend: ${errorMsg}`);
-            } else {
-                console.log(`⏳ Slug field filtering test: ${errorMsg}`);
-            }
-        }
+        console.log(`✅ Slug field filtering works - found ${entries.data.length} products`);
     });
 });

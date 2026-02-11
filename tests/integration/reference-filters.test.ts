@@ -65,19 +65,8 @@ describe("Reference and Polymorphic Filters (Isolated Tests)", () => {
         createdEntryIds[type].push(id);
     };
 
-    // Cleanup after each test
-    afterEach(async () => {
-        console.log("🧹 Cleaning up test data...");
-        for (const [type, ids] of Object.entries(createdEntryIds)) {
-            for (const id of ids) {
-                try {
-                    console.log(`  Marked for cleanup: ${type}/${id}`);
-                } catch (error) {
-                    // Ignore cleanup errors
-                }
-            }
-        }
-        // Clear the tracking for next test
+    // Reset tracking after each test (no deleteEntry API available)
+    afterEach(() => {
         for (const type in createdEntryIds) {
             createdEntryIds[type] = [];
         }

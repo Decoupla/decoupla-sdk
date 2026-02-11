@@ -27,6 +27,7 @@ export declare const requestSchema: z.ZodObject<{
     }>], null>>>;
     limit: z.ZodOptional<z.ZodNumber>;
     offset: z.ZodOptional<z.ZodNumber>;
+    return_count: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 export type RequestSchema = z.infer<typeof requestSchema>;
 export type FieldSchemaConfig = {
