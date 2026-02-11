@@ -72,9 +72,8 @@ import {
     isSupportedFileFormat,
 } from "./modules/upload";
 import {
-    validateFieldValues,
     isValidUUID,
-    normalizeFieldValues,
+    validateAndCoerceFieldValues,
 } from "./modules/entry";
 import { buildCreateFieldRequest, buildUpdateFieldRequest, buildCreateContentTypeRequest } from "./modules/sync-api";
 import type { TypeSafeFilters } from "./modules/filters";
@@ -1672,103 +1671,9 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
     const opts = typeof optionsParam === 'boolean' ? { published: optionsParam } : (optionsParam || {});
     const published = opts.published ?? true;
 
-    // Validate field values
-    const validation = validateFieldValues(fieldValues);
-    if (!validation.valid) {
-        throw new Error(validation.error || 'Invalid field values');
-    }
-
-    // Normalize field values
-    const normalizedFieldValues = normalizeFieldValues(fieldValues);
-
-    // Convert date fields to backend-expected date-only strings (YYYY-MM-DD).
-    try {
-        const fieldDefs = contentTypeDef.__definition?.fields || {};
-        const keyMap = new Map<string, string>();
-        for (const defKey of Object.keys(fieldDefs)) {
-            keyMap.set(defKey, defKey);
-            try { keyMap.set(camelToSnake(defKey), defKey); } catch (e) { }
-            try { keyMap.set(snakeToCamel(camelToSnake(defKey)), defKey); } catch (e) { }
-        }
-
-        for (const [k, v] of Object.entries(normalizedFieldValues)) {
-            const defKey = keyMap.get(k) || undefined;
-            if (!defKey) continue;
-            const fdef = fieldDefs[defKey];
-            if (!fdef) continue;
-            if (fdef.type === 'date') {
-                const toDateOnly = (val: any) => {
-                    if (val instanceof Date) {
-                        const y = val.getFullYear();
-                        const m = String(val.getMonth() + 1).padStart(2, '0');
-                        const d = String(val.getDate()).padStart(2, '0');
-                        return `${y}-${m}-${d}`;
-                    }
-                    if (typeof val === 'string') {
-                        if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
-                        const parsed = new Date(val);
-                        if (!isNaN(parsed.getTime())) {
-                            const y = parsed.getFullYear();
-                            const m = String(parsed.getMonth() + 1).padStart(2, '0');
-                            const d = String(parsed.getDate()).padStart(2, '0');
-                            return `${y}-${m}-${d}`;
-                        }
-                    }
-                    return val;
-                };
-                normalizedFieldValues[k] = toDateOnly(v);
-            }
-        }
-    } catch (e) {
-        // swallow - non-fatal
-    }
-
-    // Convert date fields to backend-expected date-only strings (YYYY-MM-DD).
-    // Backend expects `date` fields as a date string (not datetime). If callers pass
-    // a JavaScript Date or an ISO datetime string, convert/truncate it to the date
-    // in the user's local timezone. If the value is already a YYYY-MM-DD string,
-    // leave it as-is.
-    try {
-        const fieldDefs = contentTypeDef.__definition?.fields || {};
-        // build lookup mapping of possible keys -> canonical field key
-        const keyMap = new Map<string, string>();
-        for (const defKey of Object.keys(fieldDefs)) {
-            keyMap.set(defKey, defKey);
-            try { keyMap.set(camelToSnake(defKey), defKey); } catch (e) { }
-            try { keyMap.set(snakeToCamel(camelToSnake(defKey)), defKey); } catch (e) { }
-        }
-
-        for (const [k, v] of Object.entries(normalizedFieldValues)) {
-            const defKey = keyMap.get(k) || keyMap.get(k as string) || undefined;
-            if (!defKey) continue;
-            const fdef = fieldDefs[defKey];
-            if (!fdef) continue;
-            if (fdef.type === 'date') {
-                const toDateOnly = (val: any) => {
-                    if (val instanceof Date) {
-                        const y = val.getFullYear();
-                        const m = String(val.getMonth() + 1).padStart(2, '0');
-                        const d = String(val.getDate()).padStart(2, '0');
-                        return `${y}-${m}-${d}`;
-                    }
-                    if (typeof val === 'string') {
-                        if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
-                        const parsed = new Date(val);
-                        if (!isNaN(parsed.getTime())) {
-                            const y = parsed.getFullYear();
-                            const m = String(parsed.getMonth() + 1).padStart(2, '0');
-                            const d = String(parsed.getDate()).padStart(2, '0');
-                            return `${y}-${m}-${d}`;
-                        }
-                    }
-                    return val;
-                };
-                normalizedFieldValues[k] = toDateOnly(v);
-            }
-        }
-    } catch (e) {
-        // non-fatal: if anything goes wrong here, keep original values
-    }
+    // Validate and coerce field values against field definitions
+    const fieldDefs = contentTypeDef.__definition?.fields || {};
+    const normalizedFieldValues = validateAndCoerceFieldValues(fieldValues, fieldDefs, { isCreate: true });
 
     // Normalize preload shapes to the backend's nested-array grammar (same as getEntry/getEntries)
     const normalizePreload = (p: any): any => {
@@ -1893,14 +1798,9 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         throw new Error(`Invalid entry ID format: ${entryId}. Must be a valid UUID.`);
     }
 
-    // Validate field values
-    const validation = validateFieldValues(fieldValues);
-    if (!validation.valid) {
-        throw new Error(validation.error || 'Invalid field values');
-    }
-
-    // Normalize field values
-    const normalizedFieldValues = normalizeFieldValues(fieldValues);
+    // Validate and coerce field values against field definitions
+    const fieldDefs = contentTypeDef.__definition?.fields || {};
+    const normalizedFieldValues = validateAndCoerceFieldValues(fieldValues, fieldDefs, { isCreate: false });
 
     // Build request
     const requestBody: any = {

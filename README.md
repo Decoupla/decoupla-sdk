@@ -304,7 +304,7 @@ const client = createClient({
 ```typescript
 {
   getEntry: (contentTypeDef, entryId, options?) => Promise<{ data: Entry }>
-  getEntries: (contentTypeDef, options?) => Promise<{ data: Entry[] }>
+  getEntries: (contentTypeDef, options?) => Promise<{ data: Entry[] }> // or { data: Entry[], count: number } with returnCount
   // createEntry/updateEntry accept an options object { published?: boolean; preload?: PreloadSpec }.
   // When `preload` is provided the client returns the full normalized entry in `{ data: ... }`.
   createEntry: (contentTypeDef, fieldValues, publishedOrOptions?) => Promise<NormalizedEntryMetadata | { data: Entry }>
@@ -395,7 +395,21 @@ console.log(posts.data); // Array of entries
   limit?: number;                 // Max results
   offset?: number;                // Pagination offset
   preload?: string | string[];    // Preload references
+  returnCount?: boolean;          // Include total count in response
+  contentView?: 'live' | 'preview'; // Dataset to query (default: 'live')
 }
+```
+
+When `returnCount` is `true`, the response includes a `count` field alongside the entries:
+
+```typescript
+const result = await client.getEntries(BlogPost, {
+  filters: { IsPublished: { eq: true } },
+  returnCount: true,
+});
+
+console.log(result.data);  // Array of entries
+console.log(result.count); // Total matching entries
 ```
 
 ### Filter Operations
@@ -411,7 +425,8 @@ Filters are type-safe based on field type:
 
 // Numeric fields
 { ViewCount: { gte: 100 } }
-{ ViewCount: { between: [10, 100] } }
+{ ViewCount: { between: { lower: 10, upper: 100 } } }
+{ ViewCount: { outside: { lower: 10, upper: 100 } } }
 { ViewCount: { in: [10, 20, 30] } }
 
 // Boolean fields
@@ -419,7 +434,7 @@ Filters are type-safe based on field type:
 
 // Date fields
 { CreatedAt: { gte: '2024-01-01' } }
-{ CreatedAt: { between: ['2024-01-01', '2024-12-31'] } }
+{ CreatedAt: { between: { lower: '2024-01-01', upper: '2024-12-31' } } }
 
 // Null checks
 { Email: { is_null: true } }
@@ -507,11 +522,15 @@ const updatedMeta = await client.updateEntry(BlogPost, 'post-id-123', {
   ViewCount: 150,
 }, false);
 
+console.log(updatedMeta.id); // Entry metadata (no preload)
+
 // Or use options object and request preload in the response
 const updated = await client.updateEntry(BlogPost, 'post-id-123', {
   ViewCount: 150,
 }, { published: true, preload: ['Author'] });
-// If preload was requested updated will be { data: { ...full entry... } }
+
+// With preload, updateEntry returns { data: { ...full entry with relations... } }
+console.log(updated.data.author); // Preloaded relation
 ```
 
 ### `upload(file, filename?)`
@@ -737,7 +756,7 @@ const categoryProducts = await client.getEntries(Product, {
 // Get products in price range
 const priceFiltered = await client.getEntries(Product, {
   filters: {
-    Price: { between: [10, 100] },
+    Price: { between: { lower: 10, upper: 100 } },
   },
 });
 ```

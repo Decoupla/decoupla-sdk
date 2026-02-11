@@ -380,7 +380,9 @@ export declare const createClient: (config: InitSchema) => {
     }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, fieldValues: FieldValues, optionsParam?: boolean | {
         published?: boolean;
         preload?: P;
-    }) => Promise<NormalizedEntryMetadata>;
+    }) => Promise<P extends undefined ? NormalizedEntryMetadata : {
+        data: BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata;
+    }>;
     deleteContentType: (contentTypeId: string) => Promise<void>;
 };
 /**
