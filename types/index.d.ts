@@ -30,6 +30,7 @@
  *
  *   const entry = await client.createEntry('author', { Name: 'John' });
  */
+export { ApiError } from "./modules/transport";
 import { type InitSchema, type RequestSchema } from "./modules/schema";
 import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
 import type { UploadedFile, ImageFile, VideoFile } from "./modules/upload";
@@ -338,8 +339,8 @@ export declare const createClient: (config: InitSchema) => {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(contentTypeDef: T, options: {
-        filters: TypeSafeFilters<T>;
+    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(contentTypeDef: T, options?: {
+        filters?: TypeSafeFilters<T>;
         limit?: number;
         offset?: number;
         preload?: P;
@@ -349,11 +350,8 @@ export declare const createClient: (config: InitSchema) => {
     }) => Promise<RC extends true ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T["__fields"], P>> : EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
     inspect: () => Promise<InspectResponse>;
     /**
-     * Validate whether the current token can read the requested content view.
-     * Returns true when the view is accessible, false when an authorization error is returned.
-     * This helper inspects the remote for a content type and issues a harmless get_entries
-     * against that content type using the requested view; it treats a structured
-     * `{ errors: [{ field: 'authorization', ... }] }` as a permission failure.
+     * Check read access. Returns false for denied access or an empty workspace,
+     * where the requested view cannot be verified. Other failures are thrown.
      */
     validateContentView: (view: "live" | "preview") => Promise<boolean>;
     sync: (contentTypes: (ContentTypeDefinition | {

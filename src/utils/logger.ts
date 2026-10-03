@@ -1,7 +1,8 @@
 // Simple repo-only debug logger.
 // Enable by setting DECOUPLA_DEBUG=1 or DECOUPLA_DEBUG=true in your environment.
 const ENABLED = (() => {
-  const v = process.env.DECOUPLA_DEBUG || process.env.DEBUG || '';
+  const env = typeof process !== 'undefined' ? process.env : {};
+  const v = env.DECOUPLA_DEBUG || env.DEBUG || '';
   return v === '1' || v === 'true' || v.toLowerCase() === 'yes';
 })();
 

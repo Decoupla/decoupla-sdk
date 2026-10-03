@@ -24,6 +24,13 @@ describe('parseCliArgs', () => {
         expect(res.verbose).toBe(true);
     });
 
+    it('does not confuse config option values with the command', () => {
+        const res = parseCliArgs(['--config', 'custom.config.ts', 'sync', '--dry']);
+        expect(res.command).toBe('sync');
+        expect(res.config).toBe('custom.config.ts');
+        expect(res.dry).toBe(true);
+    });
+
     it('parses flags after the command (e.g. sync --dry)', () => {
         const res = parseCliArgs(['sync', '--dry']);
         expect(res.command).toBe('sync');

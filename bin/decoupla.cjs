@@ -7,7 +7,8 @@ const path = require('path');
 
 function runCommand(cmd, args) {
     const res = spawnSync(cmd, args, { stdio: 'inherit' });
-    process.exit(res.status === null ? 0 : res.status);
+    if (res.error) console.error(`Failed to start CLI: ${res.error.message}`);
+    process.exit(res.status === null ? 1 : res.status);
 }
 
 function hasCommand(cmd) {
@@ -26,8 +27,7 @@ function main() {
     const node = process.execPath || 'node';
     let preloadArg = null;
     try {
-        require.resolve('esbuild-register/dist/node');
-        preloadArg = 'esbuild-register/dist/node';
+        preloadArg = require.resolve('esbuild-register/dist/node');
     } catch (e) {
         // not installed
     }

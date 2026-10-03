@@ -21,6 +21,7 @@ describe('createEntry / updateEntry preload support', () => {
         (globalThis as any).fetch = async (url: string, opts: any) => {
             recordedBody = JSON.parse(opts.body);
             return {
+                ok: true, status: 200,
                 json: async () => ({
                     data: {
                         entry: {
@@ -55,6 +56,7 @@ describe('createEntry / updateEntry preload support', () => {
         (globalThis as any).fetch = async (url: string, opts: any) => {
             recordedBody = JSON.parse(opts.body);
             return {
+                ok: true, status: 200,
                 json: async () => ({
                     data: {
                         entry: {
@@ -86,7 +88,7 @@ describe('createEntry / updateEntry preload support', () => {
         let recordedBody: any = null;
         (globalThis as any).fetch = async (url: string, opts: any) => {
             recordedBody = JSON.parse(opts.body);
-            return { json: async () => ({ data: { entry: { id: 'e3', model_id: 'm1', state: 'loaded', last_version: 1, last_published_version: null, created_at: '2025-01-01', updated_at: '2025-01-01' } } }) } as any;
+            return { ok: true, status: 200, json: async () => ({ data: { entry: { id: 'e3', model_id: 'm1', state: 'loaded', last_version: 1, last_published_version: null, created_at: '2025-01-01', updated_at: '2025-01-01' } } }) } as any;
         };
 
         const Thing = defineContentType({ name: 'thing', fields: { Name: { type: 'string' } } });

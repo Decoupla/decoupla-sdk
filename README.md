@@ -890,3 +890,56 @@ TypeScript enforces correct filter operations per field type:
 { Title: { eq: 'hello' } }
 { ViewCount: { gte: 100 } }
 ```
+
+
+### API tokens, errors, and request timeouts
+
+Use unified workspace API tokens. Live reads require `get_entries`; preview reads require `get_draft_entries`. Draft and published writes require `draft` and `publish` respectively. Schema sync requires `manage_content_types`; uploads require `draft` or `publish`. Keep tokens on the server and grant only the permissions your integration needs. Revoked tokens fail authorization on subsequent requests.
+
+```typescript
+import { createClient, ApiError } from '@decoupla/sdk';
+
+const client = createClient({
+  apiToken: process.env.DECOUPLA_API_TOKEN!,
+  workspace: process.env.DECOUPLA_WORKSPACE!,
+  requestTimeoutMs: 30_000, // Default; covers the request and response body
+});
+
+try {
+  await client.inspect();
+} catch (error) {
+  if (error instanceof ApiError) {
+    console.error(error.status, error.message);
+    // error.errors retains structured backend fields and messages.
+  } else {
+    throw error;
+  }
+}
+```
+
+`validateContentView(view)` returns `false` for authorization denial and for an empty workspace where access cannot be verified. Network, server, and malformed-response failures are thrown.
+
+Schema dry-run plans the same creations and field changes as apply without issuing mutations. Applying sync reports only completed writes and returns errors for failures; the CLI exits nonzero when sync fails. A failed inspection stops writes. Sync is not transactional across requests, so successful writes before a later failure remain applied.
+
+The current backend derives content-type slugs from the creation name. Sync therefore creates types using the stable definition `name`; `displayName` remains local metadata and does not change the remote creation name. Existing definitions must use the actual remote slug. Extra remote fields are preserved unless `deleteExtraFields` is explicitly enabled.
+
+
+## Publishing a release
+
+After changes are merged into `main`, open this repository's **Actions → Publish to npm → Run workflow**, select the `main` branch, and choose **patch**, **minor**, or **major**. Publishing is manual; ordinary pushes only run CI.
+
+The workflow bumps the version, builds and tests that version, saves the tested npm package as a workflow artifact, and atomically pushes a version commit and `v<version>` tag. It then publishes that exact archive publicly to npm. SDK releases also commit regenerated type declarations. If `main` changes while checks run, publishing stops so you can start a fresh run against the new commit. Release runs are serialized.
+
+### One-time setup
+
+In the npm settings for `@decoupla/sdk`, add a GitHub Actions trusted publisher:
+
+- Organization/user: `Decoupla`
+- Repository: `decoupla-sdk`
+- Workflow filename: `publish.yml`
+- Environment: leave empty
+- Allowed actions: enable direct `npm publish`
+
+The workflow uses OIDC with Node 24; no npm publish token secret is needed. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/). The repository must allow the workflow's `GITHUB_TOKEN` to push the version commit to `main` and create release tags. If branch rules prevent that push, the workflow stops before npm publication.
+
+If the npm publish job fails after the version commit/tag succeeds, fix the publishing configuration and choose **Re-run failed jobs** on that run. This reuses the tested archive and version without another bump. The artifact is retained for seven days. GitHub and npm are separate services: the version commit/tag can exist even if npm publication fails.

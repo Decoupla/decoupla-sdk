@@ -288,9 +288,13 @@ export function buildUpdateFieldRequest(
  * Build a create content type request from a content type definition
  */
 export function buildCreateContentTypeRequest(ct: ContentTypeDefinition): CreateContentTypeRequest {
+    if (!/^[a-z0-9]+(?:_[a-z0-9]+)*$/.test(ct.name)) {
+        throw new Error(`Content type name "${ct.name}" must be a snake_case slug matching the remote identity`);
+    }
     return {
         op_type: 'create_content_type',
-        name: ct.displayName || ct.name,
+        // The current API derives the slug from name; preserve the stable identity.
+        name: ct.name,
         description: ct.description,
     };
 }

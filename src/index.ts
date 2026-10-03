@@ -31,6 +31,8 @@
  *   const entry = await client.createEntry('author', { Name: 'John' });
  */
 
+import { apiFetch, ApiError } from "./modules/transport";
+export { ApiError } from "./modules/transport";
 import { initSchema, requestSchema, type InitSchema, type RequestSchema, snakeToCamel, camelToSnake } from "./modules/schema";
 import type {
     EntryResponse,
@@ -109,11 +111,11 @@ export type {
 
 const {
     DECOUPLA_API_URL_BASE = "https://api.decoupla.com/public/api/1.0/workspace/",
-} = process.env;
+} = typeof process !== "undefined" ? process.env : {};
 
 const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse> => {
 
-    const { apiToken, workspace } = options;
+    const { apiToken, workspace, requestTimeoutMs } = options;
 
     const {
         op_type,
@@ -154,41 +156,23 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
 
     if (outgoingApiType) requestBody.api_type = outgoingApiType;
 
-    const req = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+    const req = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    });
+    }, requestTimeoutMs);
 
-    let respData;
-    const responseText = await req.text();
-
-    try {
-        respData = JSON.parse(responseText);
-    } catch (error) {
-        console.error('Failed to parse JSON response:', error, 'Status:', req.status);
-        console.error('Response body:', responseText);
-        throw new Error(`Failed to parse JSON response (HTTP ${req.status}): ${error} | Response was: "${responseText}"`);
-    }
-
-    if ((respData as ErrorResponse).errors) {
-        debug(respData);
-        console.error('API Error:', (respData as ErrorResponse));
-        const errorDetails = (respData as ErrorResponse).errors.map((e: any) => {
-            let msg = `${e.field}: ${e.message}`;
-            if (e.available_filters) {
-                msg += ` | Available filters: ${JSON.stringify(e.available_filters)}`;
-            }
-            if (e.valid_filters) {
-                msg += ` | Valid filters: ${JSON.stringify(e.valid_filters)}`;
-            }
-            return msg;
-        }).join('\n');
-        throw new Error(`API Error:\n${errorDetails}`);
-    }
+    const respData = await req.json();
+    const valid = op_type === 'inspect'
+        ? Array.isArray(respData.data?.content_types) && respData.data.content_types.every((ct: any) =>
+            typeof ct.id === 'string' && Array.isArray(ct.fields))
+        : op_type === 'get_entries'
+            ? Array.isArray(respData.data) || (Array.isArray(respData.data?.entries) && typeof respData.data.count === 'number')
+            : respData.data === null || (typeof respData.data === 'object' && !Array.isArray(respData.data));
+    if (!valid) throw new ApiError(`Invalid API response for ${op_type}`);
 
     return respData as EntriesResponse<T> | EntryResponse<T> | InspectResponse;
 }
@@ -667,14 +651,14 @@ const getEntries = (request: Request) =>
     async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(
         contentTypeDef: T,
         options: {
-            filters: TypeSafeFilters<T>;
+            filters?: TypeSafeFilters<T>;
             limit?: number;
             offset?: number;
             preload?: P;
             sort?: [string, "ASC" | "DESC"];
             contentView?: 'live' | 'preview';
             returnCount?: RC;
-        }
+        } = {}
     ): Promise<
         RC extends true
             ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
@@ -953,15 +937,7 @@ const sync = (request: Request) => {
             // ignore
         }
 
-        // Inspect the remote to get current state
-        let remoteInspect: InspectResponse | null = null;
-        try {
-            remoteInspect = await inspect(request)();
-        } catch (e) {
-            // if inspection fails, log but continue with empty state
-            console.warn('Failed to inspect remote:', e);
-            remoteInspect = null;
-        }
+        const remoteInspect = await inspect(request)();
 
         // Build remote content type map from inspect response
         // First, create a mapping of content type IDs to names
@@ -1023,13 +999,11 @@ const sync = (request: Request) => {
             if (!remoteContentType) {
                 // Content type missing remotely
                 if (createMissing && createContentType) {
-                    actions.push({ type: 'create', contentType: ct.name, detail: { reason: 'missing_content_type', contentType: ct } });
-                    if (!dryRun) {
-                        try {
-                            await createContentType(ct);
-                        } catch (e) {
-                            actions.push({ type: 'mismatch', contentType: ct.name, detail: { reason: 'create_failed', error: String(e) } });
-                        }
+                    try {
+                        if (!dryRun) await createContentType(ct);
+                        actions.push({ type: 'create', contentType: ct.name, detail: { reason: 'missing_content_type', contentType: ct } });
+                    } catch (e) {
+                        actions.push({ type: 'mismatch', contentType: ct.name, detail: { reason: 'create_failed', error: String(e) } });
                     }
                 } else {
                     actions.push({ type: 'skip', contentType: ct.name, detail: { reason: 'missing_content_type' } });
@@ -1171,14 +1145,7 @@ const syncWithFields = (request: Request) => {
             return ct;
         }) as ContentTypeDefinition[];
 
-        // Inspect the remote to get current state
-        let remoteInspect: InspectResponse | null = null;
-        try {
-            remoteInspect = await inspect(request)();
-        } catch (e) {
-            console.warn('Failed to inspect remote:', e);
-            remoteInspect = null;
-        }
+        let remoteInspect = await inspect(request)();
 
         // Build remote content type mappings
         const contentTypeIdToName = new Map<string, string>();
@@ -1247,15 +1214,16 @@ const syncWithFields = (request: Request) => {
             if (!remoteContentType) {
                 // Content type missing remotely
                 if (createMissing && createContentType) {
-                    actions.push({ type: 'create', contentType: ct.name, detail: { reason: 'missing_content_type' } });
-                    if (!dryRun) {
-                        try {
-                            await createContentType(ct);
-                            // After creating, add to our mapping so it's available for reference resolution
+                    try {
+                        if (!dryRun) await createContentType(ct);
+                        actions.push({ type: 'create', contentType: ct.name, detail: { reason: 'missing_content_type' } });
+                        if (dryRun) {
+                            // Plan fields for newly created types without issuing mutations.
                             contentTypeNameToId.set(ct.name, ct.name);
-                        } catch (e) {
-                            actions.push({ type: 'mismatch', contentType: ct.name, detail: { reason: 'create_failed', error: String(e) } });
+                            remoteMap.set(ct.name, { id: ct.name, fields: new Map() });
                         }
+                    } catch (e) {
+                        actions.push({ type: 'mismatch', contentType: ct.name, detail: { reason: 'create_failed', error: String(e) } });
                     }
                 } else {
                     actions.push({ type: 'skip', contentType: ct.name, detail: { reason: 'missing_content_type' } });
@@ -1266,52 +1234,48 @@ const syncWithFields = (request: Request) => {
         // ============================================
         // PHASE 2: Refresh inspect if we created content types
         // ============================================
-        if (!dryRun) {
-            try {
-                remoteInspect = await inspect(request)();
-                // Rebuild the mapping with fresh data
-                contentTypeIdToName.clear();
-                contentTypeNameToId.clear();
-                if (remoteInspect) {
-                    remoteInspect.data.content_types.forEach(ct => {
-                        const name = (ct as any).slug || ct.id;
-                        contentTypeIdToName.set(ct.id, name);
-                        contentTypeNameToId.set(name, ct.id);
-                    });
-                }
-                // Rebuild remoteMap
-                remoteMap.clear();
-                if (remoteInspect) {
-                    remoteInspect.data.content_types.forEach(ct => {
-                        const fieldsMap = new Map<string, any>();
-                        ct.fields.forEach(f => {
-                            const referenceNames = (f.meta?.reference_types || [])
-                                .map(refId => contentTypeIdToName.get(refId) || refId)
-                                .filter(Boolean);
+        if (!dryRun && actions.some(action => action.type === 'create')) {
+            remoteInspect = await inspect(request)();
+            // Rebuild the mapping with fresh data
+            contentTypeIdToName.clear();
+            contentTypeNameToId.clear();
+            if (remoteInspect) {
+                remoteInspect.data.content_types.forEach(ct => {
+                    const name = (ct as any).slug || ct.id;
+                    contentTypeIdToName.set(ct.id, name);
+                    contentTypeNameToId.set(name, ct.id);
+                });
+            }
+            // Rebuild remoteMap
+            remoteMap.clear();
+            if (remoteInspect) {
+                remoteInspect.data.content_types.forEach(ct => {
+                    const fieldsMap = new Map<string, any>();
+                    ct.fields.forEach(f => {
+                        const referenceNames = (f.meta?.reference_types || [])
+                            .map(refId => contentTypeIdToName.get(refId) || refId)
+                            .filter(Boolean);
 
-                            fieldsMap.set(f.slug, {
-                                id: f.id,
-                                slug: f.slug,
-                                type: f.type,
-                                is_label: f.is_label,
-                                required: f.required,
-                                reference_types: referenceNames,
-                            });
-                        });
-
-                        const name = (ct as any).slug || ct.id;
-                        // Use the content type slug/name as the key so lookups by ct.name succeed
-                        remoteMap.set(name, {
-                            id: ct.id,
-                            fields: fieldsMap,
+                        fieldsMap.set(f.slug, {
+                            id: f.id,
+                            slug: f.slug,
+                            type: f.type,
+                            is_label: f.is_label,
+                            required: f.required,
+                            reference_types: referenceNames,
+                            options: f.options,
                         });
                     });
-                }
-            } catch (e) {
-                console.warn('Failed to refresh inspect after creating content types:', e);
+
+                    const name = (ct as any).slug || ct.id;
+                    // Use the content type slug/name as the key so lookups by ct.name succeed
+                    remoteMap.set(name, {
+                        id: ct.id,
+                        fields: fieldsMap,
+                    });
+                });
             }
         }
-
         // ============================================
         // PHASE 3: Now process fields with complete mapping
         // ============================================
@@ -1326,7 +1290,9 @@ const syncWithFields = (request: Request) => {
             const remoteContentType = remoteMap.get(ct.name);
 
             if (!remoteContentType) {
-                // Content type still missing (wasn't created, was skipped)
+                if (actions.some(action => action.type === 'create' && action.contentType === ct.name)) {
+                    actions.push({ type: 'mismatch', contentType: ct.name, detail: { message: 'Created content type was not found under its expected slug' } });
+                }
                 continue;
             }
 
@@ -1459,10 +1425,10 @@ const syncWithFields = (request: Request) => {
                 }
             }
 
-            // Check for extra fields in remote
+            // Match canonical slugs so PascalCase definitions cannot delete their own fields.
+            const desiredSlugs = new Set(Object.keys(desiredFields).map(camelToSnake));
             for (const [remoteFieldSlug, remoteField] of remoteFields) {
-                const camelCaseFieldName = snakeToCamel(remoteFieldSlug);
-                if (!(camelCaseFieldName in desiredFields)) {
+                if (!desiredSlugs.has(remoteFieldSlug) && deleteExtraFields) {
                     fieldDiffs.push({
                         field: remoteFieldSlug,
                         reason: 'extra_field_remote',
@@ -1478,7 +1444,11 @@ const syncWithFields = (request: Request) => {
                 }
             }
 
-            // Execute field operations
+            // Count only completed writes (or planned writes during dry-run).
+            let created = dryRun ? fieldsToCreate.length : 0;
+            let updated = dryRun ? fieldsToUpdate.length : 0;
+            let deleted = dryRun ? fieldsToDelete.length : 0;
+            const failures: string[] = [];
             if (fieldsToCreate.length > 0 && !dryRun) {
                 for (const { name, def } of fieldsToCreate) {
                     try {
@@ -1493,16 +1463,9 @@ const syncWithFields = (request: Request) => {
                                 .filter(Boolean) as any[];
                         }
                         await createField!(remoteContentType.id, name, defWithResolvedReferences);
+                        created++;
                     } catch (e) {
-                        fieldDiffs.push({
-                            field: name,
-                            reason: 'missing_field',
-                            desired: {
-                                type: def.type,
-                                required: def.required ?? false,
-                                isLabel: def.isLabel ?? false,
-                            }
-                        });
+                        failures.push(`Create field ${name}: ${String(e)}`);
                     }
                 }
             }
@@ -1518,8 +1481,9 @@ const syncWithFields = (request: Request) => {
                                 .filter(Boolean);
                         }
                         await updateField!(id, resolvedChanges);
+                        updated++;
                     } catch (e) {
-                        console.warn(`Failed to update field ${id}:`, e);
+                        failures.push(`Update field ${id}: ${String(e)}`);
                     }
                 }
             }
@@ -1528,22 +1492,21 @@ const syncWithFields = (request: Request) => {
                 for (const id of fieldsToDelete) {
                     try {
                         await deleteField!(id);
+                        deleted++;
                     } catch (e) {
-                        console.warn(`Failed to delete field ${id}:`, e);
+                        failures.push(`Delete field ${id}: ${String(e)}`);
                     }
                 }
             }
 
-            // Determine action type
-            if (fieldDiffs.length === 0) {
-                actions.push({ type: 'noop', contentType: ct.name });
-            } else if (fieldsToCreate.length > 0) {
-                actions.push({ type: 'create_fields', contentType: ct.name, detail: { fieldDiffs, created: fieldsToCreate.length } });
-            } else if (fieldsToUpdate.length > 0) {
-                actions.push({ type: 'update_fields', contentType: ct.name, detail: { fieldDiffs, updated: fieldsToUpdate.length } });
-            } else if (fieldsToDelete.length > 0) {
-                actions.push({ type: 'delete_fields', contentType: ct.name, detail: { fieldDiffs, deleted: fieldsToDelete.length } });
-            } else {
+            if (failures.length) {
+                actions.push({ type: 'mismatch', contentType: ct.name, detail: { message: failures.join('; '), fieldDiffs } });
+            }
+            if (created) actions.push({ type: 'create_fields', contentType: ct.name, detail: { fieldDiffs, created } });
+            if (updated) actions.push({ type: 'update_fields', contentType: ct.name, detail: { fieldDiffs, updated } });
+            if (deleted) actions.push({ type: 'delete_fields', contentType: ct.name, detail: { fieldDiffs, deleted } });
+            if (!fieldDiffs.length) actions.push({ type: 'noop', contentType: ct.name });
+            else if (!failures.length && !created && !updated && !deleted) {
                 actions.push({ type: 'mismatch', contentType: ct.name, detail: { fieldDiffs } });
             }
         }
@@ -1596,7 +1559,7 @@ const syncWithFields = (request: Request) => {
  * Upload a file (image or video) to the backend
  */
 const upload = (options: InitSchema) => async (file: File | Blob, filename?: string): Promise<UploadedFile> => {
-    const { apiToken, workspace } = options;
+    const { apiToken, workspace, requestTimeoutMs } = options;
 
     // If Blob is provided, we need a filename
     if (!(file instanceof File) && !filename) {
@@ -1617,20 +1580,15 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
     formData.append('file', file, fname);
 
     // Make the upload request
-    const response = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiToken}`,
         },
         body: formData,
-    });
+    }, requestTimeoutMs);
 
     const respData = await response.json() as any;
-
-    if ((respData as any).errors) {
-        console.error('Upload Error:', respData);
-        throw new Error(`Upload failed: ${(respData as any).errors.map((e: any) => e.message).join(', ')}`);
-    }
 
     const uploadResponse = respData as UploadFileResponse;
     return uploadResponse.data.file;
@@ -1666,7 +1624,7 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         ? NormalizedEntryMetadata
         : { data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }
 > => {
-    const { apiToken, workspace } = options;
+    const { apiToken, workspace, requestTimeoutMs } = options;
     // Normalize optionsParam to the object shape
     const opts = typeof optionsParam === 'boolean' ? { published: optionsParam } : (optionsParam || {});
     const published = opts.published ?? true;
@@ -1728,24 +1686,16 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
     }
 
     // Make the request
-    const response = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    });
+    }, requestTimeoutMs);
 
     const respData = await response.json() as any;
-
-    if ((respData as any).errors) {
-        console.error('Create Entry Error:', respData);
-        const errorMessages = (respData as any).errors
-            .map((e: any) => `${e.field}: ${e.message}`)
-            .join('; ');
-        throw new Error(`Failed to create entry: ${errorMessages}`);
-    }
 
     const createResponse = respData as CreateEntryResponse;
     const entry = createResponse.data?.entry;
@@ -1791,7 +1741,7 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         ? NormalizedEntryMetadata
         : { data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }
 > => {
-    const { apiToken, workspace } = options;
+    const { apiToken, workspace, requestTimeoutMs } = options;
 
     // Validate entry ID
     if (!isValidUUID(entryId)) {
@@ -1857,24 +1807,16 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
     }
 
     // Make the request
-    const response = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    });
+    }, requestTimeoutMs);
 
     const respData = await response.json() as any;
-
-    if ((respData as any).errors) {
-        console.error('Update Entry Error:', respData);
-        const errorMessages = (respData as any).errors
-            .map((e: any) => `${e.field}: ${e.message}`)
-            .join('; ');
-        throw new Error(`Failed to update entry: ${errorMessages}`);
-    }
 
     const updateResponse = respData as UpdateEntryResponse;
     const entry = updateResponse.data?.entry;
@@ -1906,7 +1848,7 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
  * Delete a content type by ID
  */
 const deleteContentType = (options: InitSchema) => async (contentTypeId: string): Promise<void> => {
-    const { apiToken, workspace } = options;
+    const { apiToken, workspace, requestTimeoutMs } = options;
 
     // Validate content type ID
     if (!isValidUUID(contentTypeId)) {
@@ -1918,102 +1860,84 @@ const deleteContentType = (options: InitSchema) => async (contentTypeId: string)
         content_type_id: contentTypeId,
     };
 
-    const response = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    });
+    }, requestTimeoutMs);
 
     const respData = await response.json() as any;
 
-    if ((respData as any).errors) {
-        console.error('Delete Content Type Error:', respData);
-        const errorMessages = (respData as any).errors
-            .map((e: any) => `${e.field}: ${e.message}`)
-            .join('; ');
-        throw new Error(`Failed to delete content type: ${errorMessages}`);
-    }
+
 };
 
 export const createClient = (config: InitSchema) => {
-    const { apiToken, workspace } = initSchema.parse(config);
-    const request = makeRequest({ apiToken, workspace });
+    const { apiToken, workspace, requestTimeoutMs } = initSchema.parse(config);
+    const request = makeRequest({ apiToken, workspace, requestTimeoutMs });
 
     // Remote mutation helpers used by syncWithFields when invoked from the CLI.
     const createContentTypeRemote = async (ct: ContentTypeDefinition) => {
         const reqBody = buildCreateContentTypeRequest(ct);
         debug('[sync] createContentType request:', JSON.stringify(reqBody));
-        const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        });
-        const data = await resp.json().catch(() => null);
+        }, requestTimeoutMs);
+        const data = await resp.json();
         debug('[sync] createContentType response:', JSON.stringify(data));
-        if (!data || (data as any).errors) {
-            throw new Error(`Failed to create content type ${ct.name}: ${JSON.stringify(data)}`);
-        }
         return data;
     };
 
     const createFieldRemote = async (modelId: string, fieldName: string, fieldDef: FieldDefinition) => {
         const reqBody = buildCreateFieldRequest(modelId, fieldName, fieldDef);
         debug('[sync] createField request:', JSON.stringify(reqBody));
-        const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        });
-        const data = await resp.json().catch(() => null);
+        }, requestTimeoutMs);
+        const data = await resp.json();
         debug('[sync] createField response for', fieldName, JSON.stringify(data));
-        if (!data || (data as any).errors) {
-            throw new Error(`Failed to create field ${fieldName} on ${modelId}: ${JSON.stringify(data)}`);
-        }
         return data;
     };
 
     const updateFieldRemote = async (fieldId: string, changes: Record<string, any>) => {
         const reqBody = buildUpdateFieldRequest(fieldId, changes);
         debug('[sync] updateField request:', JSON.stringify(reqBody));
-        const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        });
-        const data = await resp.json().catch(() => null);
+        }, requestTimeoutMs);
+        const data = await resp.json();
         debug('[sync] updateField response for', fieldId, JSON.stringify(data));
-        if (!data || (data as any).errors) {
-            throw new Error(`Failed to update field ${fieldId}: ${JSON.stringify(data)}`);
-        }
         return data;
     };
 
     const deleteFieldRemote = async (fieldId: string) => {
         const reqBody = { op_type: 'delete_field', field_id: fieldId };
-        const resp = await fetch(`${DECOUPLA_API_URL_BASE}${workspace}`, {
+        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        });
-        const data = await resp.json().catch(() => null);
-        if (!data || (data as any).errors) {
-            throw new Error(`Failed to delete field ${fieldId}: ${JSON.stringify(data)}`);
-        }
+        }, requestTimeoutMs);
+        const data = await resp.json();
         return data;
     };
 
@@ -2041,44 +1965,27 @@ export const createClient = (config: InitSchema) => {
         // Note: inline preload literal inference is supported by getEntries overloads.
         inspect: inspect(request),
         /**
-         * Validate whether the current token can read the requested content view.
-         * Returns true when the view is accessible, false when an authorization error is returned.
-         * This helper inspects the remote for a content type and issues a harmless get_entries
-         * against that content type using the requested view; it treats a structured
-         * `{ errors: [{ field: 'authorization', ... }] }` as a permission failure.
+         * Check read access. Returns false for denied access or an empty workspace,
+         * where the requested view cannot be verified. Other failures are thrown.
          */
         validateContentView: async (view: 'live' | 'preview'): Promise<boolean> => {
             try {
                 const inspectResp = await inspect(request)();
-                const firstCT = inspectResp.data.content_types && inspectResp.data.content_types[0];
-                if (!firstCT) return true; // nothing to check against
-                const typeName = firstCT.slug || firstCT.id;
-                // Call get_entries with limit 0/1 to avoid heavy payloads
-                const resp = await request({ op_type: 'get_entries', type: typeName, limit: 1, api_type: view } as any).catch((err: any) => ({ __err: err }));
-                if ((resp as any)?.__err) {
-                    // If the request failed at network/parse level, rethrow
-                    throw (resp as any).__err;
-                }
-                // If API responded with structured errors, detect authorization field
-                if ((resp as any).errors || (resp as any).data?.errors) {
-                    const errors = (resp as any).errors || (resp as any).data?.errors || [];
-                    return !errors.some((e: any) => e.field === 'authorization');
-                }
+                const firstCT = inspectResp.data.content_types[0];
+                if (!firstCT) return false;
+                await request({ op_type: 'get_entries', type: firstCT.slug || firstCT.id, limit: 1, api_type: view });
                 return true;
-            } catch (e: any) {
-                // If we receive an API error shape, inspect it
-                if (e && typeof e === 'object' && e.errors) {
-                    return !e.errors.some((er: any) => er.field === 'authorization');
-                }
-                throw e;
+            } catch (error) {
+                if (error instanceof ApiError && error.isAuthorizationError) return false;
+                throw error;
             }
         },
         sync: sync(request),
         syncWithFields: syncWithFieldsBound,
-        upload: upload({ apiToken, workspace }),
-        createEntry: createEntry({ apiToken, workspace }),
-        updateEntry: updateEntry({ apiToken, workspace }),
-        deleteContentType: deleteContentType({ apiToken, workspace }),
+        upload: upload({ apiToken, workspace, requestTimeoutMs }),
+        createEntry: createEntry({ apiToken, workspace, requestTimeoutMs }),
+        updateEntry: updateEntry({ apiToken, workspace, requestTimeoutMs }),
+        deleteContentType: deleteContentType({ apiToken, workspace, requestTimeoutMs }),
     };
 };
 

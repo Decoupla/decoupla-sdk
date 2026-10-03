@@ -93,9 +93,9 @@ export async function syncSchemas(
             contentTypeDefs,
             {
                 dryRun: options.dryRun ?? false,
-                createMissing: !options.dryRun,
-                createMissingFields: !options.dryRun,
-                updateFields: !options.dryRun,
+                createMissing: true,
+                createMissingFields: true,
+                updateFields: true,
             }
         );
 
@@ -116,11 +116,11 @@ export async function syncSchemas(
         for (const action of syncResult.actions) {
             if (action.type === 'create') {
                 created.push(action.contentType);
-            } else if (action.type === 'create_fields' || action.type === 'update_fields') {
+            } else if (action.type === 'create_fields' || action.type === 'update_fields' || action.type === 'delete_fields') {
                 if (!updated.includes(action.contentType)) {
                     updated.push(action.contentType);
                 }
-            } else if (action.type === 'skip' || action.type === 'noop') {
+            } else if (action.type === 'noop') {
                 if (!unchanged.includes(action.contentType)) {
                     unchanged.push(action.contentType);
                 }
@@ -129,7 +129,7 @@ export async function syncSchemas(
                 mismatches.push({ name: action.contentType, detail: action.detail });
                 errors.push({
                     name: action.contentType,
-                    error: action.detail?.message || 'Schema mismatch',
+                    error: action.detail?.message || action.detail?.error || 'Schema mismatch',
                 });
             }
         }
@@ -171,7 +171,7 @@ export async function syncSchemas(
             }
         } else {
             console.log('');
-            console.log('✅ Sync completed successfully');
+            console.log(errors.length ? '❌ Sync completed with errors' : '✅ Sync completed successfully');
             console.log(`Created: ${created.length}`);
             console.log(`Updated: ${updated.length}`);
             console.log(`Unchanged: ${unchangedCount}`);
@@ -184,8 +184,8 @@ export async function syncSchemas(
         }
 
         return {
-            success: true,
-            message: 'Schema sync completed',
+            success: errors.length === 0,
+            message: errors.length ? 'Schema sync completed with errors' : 'Schema sync completed',
             changes: {
                 created,
                 updated,

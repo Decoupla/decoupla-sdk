@@ -26,6 +26,6 @@ export declare function parseCliArgs(argv?: string[]): CliArgs;
  * Build-time bundles will replace the token `__PACKAGE_VERSION__` with the
  * actual version string via `tsup`'s `define` option. When running directly
  * from source (during development or unit tests) we fall back to reading
- * package.json from the working directory.
+ * package.json from the SDK package directory.
  */
 export declare function getVersionString(): string;

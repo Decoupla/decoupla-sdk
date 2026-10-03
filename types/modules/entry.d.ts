@@ -3,6 +3,7 @@
  *
  * Supports creating and updating entries (instances of content types)
  */
+import type { FieldDefinition } from '../types';
 export type FieldValue = string | number | boolean | null | FieldValue[] | Record<string, any>;
 export type FieldValues = Record<string, FieldValue>;
 export type CreateEntryRequest = {
@@ -70,3 +71,36 @@ export declare function normalizeFieldValues(fieldValues: FieldValues): FieldVal
  * Format entry metadata for display
  */
 export declare function formatEntryMetadata(entry: EntryMetadata): string;
+/**
+ * Structured validation error with per-field error details.
+ */
+export declare class FieldValidationError extends Error {
+    readonly fieldErrors: EntryError[];
+    constructor(fieldErrors: EntryError[]);
+}
+/**
+ * Build a map from all possible key variants (PascalCase, snake_case, camelCase)
+ * to the canonical field definition key.
+ */
+export declare function buildFieldKeyMap(fieldDefs: Record<string, FieldDefinition>): Map<string, string>;
+/**
+ * Convert a Date object or ISO string to a date-only string (YYYY-MM-DD).
+ * Uses local timezone for Date objects.
+ */
+export declare function formatDateOnly(val: unknown): string;
+/**
+ * Coerce a single field value to match the expected field type.
+ * Returns the coerced value or throws an Error with a descriptive message.
+ */
+export declare function coerceFieldValue(value: unknown, fdef: FieldDefinition, fieldName: string): unknown;
+/**
+ * Validate and coerce field values against their field definitions.
+ *
+ * - `isCreate: true` enforces required field checks
+ * - Coerces values to match expected types where safe
+ * - Validates options/enum constraints
+ * - Collects all errors and throws a single FieldValidationError
+ */
+export declare function validateAndCoerceFieldValues(fieldValues: FieldValues, fieldDefs: Record<string, FieldDefinition>, opts?: {
+    isCreate?: boolean;
+}): FieldValues;

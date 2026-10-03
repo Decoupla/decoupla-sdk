@@ -5,8 +5,9 @@ export declare function camelToSnake(str: string): string;
 export declare const initSchema: z.ZodObject<{
     apiToken: z.ZodString;
     workspace: z.ZodString;
+    requestTimeoutMs: z.ZodDefault<z.ZodNumber>;
 }, z.core.$strip>;
-export type InitSchema = z.infer<typeof initSchema>;
+export type InitSchema = z.input<typeof initSchema>;
 export declare const requestSchema: z.ZodObject<{
     type: z.ZodOptional<z.ZodString>;
     op_type: z.ZodEnum<{

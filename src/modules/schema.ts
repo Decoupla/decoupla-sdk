@@ -17,9 +17,10 @@ export function camelToSnake(str: string): string {
 export const initSchema = z.object({
     apiToken: z.string().min(1, "API Token is required"),
     workspace: z.string().min(1, "Workspace is required"),
+    requestTimeoutMs: z.number().int().positive().default(30_000),
 });
 
-export type InitSchema = z.infer<typeof initSchema>;
+export type InitSchema = z.input<typeof initSchema>;
 
 const preloadType: z.ZodTypeAny = z.lazy(() =>
     z.array(

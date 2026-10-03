@@ -14,6 +14,8 @@
  */
 
 import { parseArgs } from 'util';
+import path from 'node:path';
+declare const __PACKAGE_VERSION__: string;
 import { findConfigFile, loadConfigSafe } from './config-loader';
 import { syncSchemas, previewSync } from './sync';
 import type { ContentTypeConfig } from './config-loader';
@@ -46,11 +48,6 @@ export function parseCliArgs(argv?: string[]): CliArgs {
         return { command: 'version', help: false };
     }
 
-    // Find the first non-flag token and treat it as the command. This allows
-    // callers to pass flags before the command, e.g. `decoupla --verbose sync`.
-    const firstPositional = rawArgs.find((a) => !a.startsWith('-'));
-    const command = firstPositional || 'help';
-
     // Parse options (allow positionals to keep parsing simple) and pick flags
     const parsed = parseArgs({
         args: rawArgs,
@@ -67,7 +64,7 @@ export function parseCliArgs(argv?: string[]): CliArgs {
     const { dry, verbose, config, help } = parsed.values as any;
 
     return {
-        command,
+        command: parsed.positionals[0] || 'help',
         dry: dry === true,
         verbose: verbose === true,
         config: config as string | undefined,
@@ -201,20 +198,18 @@ function showVersion(): void {
  * Build-time bundles will replace the token `__PACKAGE_VERSION__` with the
  * actual version string via `tsup`'s `define` option. When running directly
  * from source (during development or unit tests) we fall back to reading
- * package.json from the working directory.
+ * package.json from the SDK package directory.
  */
 export function getVersionString(): string {
-    // This token will be replaced at build-time. When running from source
-    // it will literally be the string '__PACKAGE_VERSION__'.
-    const embedded = '__PACKAGE_VERSION__';
-    if (embedded && embedded !== '__PACKAGE_VERSION__') {
+    const embedded = typeof __PACKAGE_VERSION__ === 'string' ? __PACKAGE_VERSION__ : undefined;
+    if (embedded) {
         return embedded;
     }
 
     try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         // @ts-ignore - dynamic require
-        const pkg = require(`${process.cwd()}/package.json`);
+        const pkg = require(path.resolve(__dirname, '../../package.json'));
         if (pkg && pkg.version) return String(pkg.version);
     } catch (e) {
         // ignore
