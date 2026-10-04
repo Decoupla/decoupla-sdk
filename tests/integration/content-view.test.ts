@@ -30,13 +30,13 @@ const client = createClient({ apiToken: API_TOKEN, workspace: WORKSPACE });
     await client.updateEntry(BlogPostContentType, postId, { Title: draftTitle }, false);
 
     // Fetch with preview view - should return the draft title
-    const preview = await client.getEntry(BlogPostContentType, postId, { contentView: 'preview' });
+    const preview = await client.getEntryOrThrow(BlogPostContentType, postId, { contentView: 'preview' });
     expect(preview).toBeDefined();
     expect(preview.data).toBeDefined();
     expect(preview.data.title).toBe(draftTitle);
 
     // Fetch with live view - should normally return the originally published title
-    const liveResult = await client.getEntry(BlogPostContentType, postId, { contentView: 'live' });
+    const liveResult = await client.getEntryOrThrow(BlogPostContentType, postId, { contentView: 'live' });
     expect(liveResult).toBeDefined();
     expect(liveResult.data).toBeDefined();
 

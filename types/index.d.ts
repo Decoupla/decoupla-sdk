@@ -30,14 +30,24 @@
  *
  *   const entry = await client.createEntry('author', { Name: 'John' });
  */
-export { ApiError } from "./modules/transport";
+import type { BrandedContentType } from './types/generics';
+import type { GetEntryOptions, GetEntriesOptions, PaginationOptions, UpdateEntriesOptions, UpdateEntriesResponse } from './types/queries';
+import type { CreateFieldValues, UpdateFieldValues } from './types/writes';
+export type { RequestOptions } from "./modules/transport";
+export type { VideoTransform, VideoOptions, VideoOptionsFor } from "./types/videos";
+export type { UpdateEntriesOptions, UpdateEntriesResponse } from "./types/queries";
+export type { GetEntryOptions, GetEntriesOptions, PaginationOptions, SortField, SortSpec } from './types/queries';
+export type { CreateFieldValues, UpdateFieldValues, FieldWriteValue, EntryIdInput, JsonValue } from './types/writes';
+export type { ImageFormat, ImageTransform, ImageOptions, ImageOptionsFor } from './types/images';
+import { type RequestOptions } from "./modules/transport";
+export { ApiError, EntryNotFoundError } from "./modules/transport";
 import { type InitSchema, type RequestSchema } from "./modules/schema";
-import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
+import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
 import type { UploadedFile, ImageFile, VideoFile } from "./modules/upload";
 import type { FieldValues, EntryMetadata, NormalizedEntryMetadata } from "./modules/entry";
 import type { TypeSafeFilters } from "./modules/filters";
-export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
-declare const makeRequest: (options: InitSchema) => <T>(request: RequestSchema) => Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse>;
+export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
+declare const makeRequest: (options: InitSchema) => <T>(request: RequestSchema, controls?: RequestOptions) => Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse>;
 type Request = ReturnType<typeof makeRequest>;
 /**
  * Convert PascalCase to camelCase: ViewCount -> viewCount
@@ -172,14 +182,14 @@ type BuildEntryFromFields<TFields extends Record<string, FieldDefinition>> = {
     } ? ImageObject[] | undefined : TFields[K] extends {
         type: 'video';
         required: true;
-    } ? TextObject : TFields[K] extends {
+    } ? VideoObject : TFields[K] extends {
         type: 'video';
-    } ? TextObject | undefined : TFields[K] extends {
+    } ? VideoObject | undefined : TFields[K] extends {
         type: 'video[]';
         required: true;
-    } ? TextObject[] : TFields[K] extends {
+    } ? VideoObject[] : TFields[K] extends {
         type: 'video[]';
-    } ? TextObject[] | undefined : TFields[K] extends {
+    } ? VideoObject[] | undefined : TFields[K] extends {
         type: 'json';
         required: true;
     } ? Record<string, any> : TFields[K] extends {
@@ -300,14 +310,14 @@ type BuildEntryFromFieldsWithPreload<TFields extends Record<string, FieldDefinit
     } ? ImageObject[] | undefined : TFields[K] extends {
         type: 'video';
         required: true;
-    } ? TextObject : TFields[K] extends {
+    } ? VideoObject : TFields[K] extends {
         type: 'video';
-    } ? TextObject | undefined : TFields[K] extends {
+    } ? VideoObject | undefined : TFields[K] extends {
         type: 'video[]';
         required: true;
-    } ? TextObject[] : TFields[K] extends {
+    } ? VideoObject[] : TFields[K] extends {
         type: 'video[]';
-    } ? TextObject[] | undefined : TFields[K] extends {
+    } ? VideoObject[] | undefined : TFields[K] extends {
         type: 'json';
         required: true;
     } ? Record<string, any> : TFields[K] extends {
@@ -323,65 +333,63 @@ declare const syncWithFields: (request: Request) => (contentTypes: (ContentTypeD
     __definition: ContentTypeDefinition;
     __fields: Record<string, FieldDefinition>;
 })[], options?: SyncOptions) => Promise<SyncResult>;
+/**
+ * Create a new entry (instance of a content type)
+ */
+type NoInferContentType<T> = [T][T extends unknown ? 0 : never];
 export declare const createClient: (config: InitSchema) => {
     getEntry: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, options?: {
-        preload?: P;
-        /** Preferred client option name: selects which dataset (live vs preview) to read. */
-        contentView?: "live" | "preview";
-    }) => Promise<{
+    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, options?: GetEntryOptions<T, P>) => Promise<{
+        data: (BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata) | null;
+    }>;
+    getEntryOrThrow: <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, options?: GetEntryOptions<T, P>) => Promise<{
         data: BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata;
     }>;
+    iterateEntries: <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, options?: PaginationOptions<T, P>) => AsyncGenerator<BuildEntryFromFieldsWithPreload<T["__fields"], P>, void, unknown>;
+    getAllEntries: <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, options?: PaginationOptions<T, P>) => Promise<EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
     getEntries: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(contentTypeDef: T, options?: {
-        filters?: TypeSafeFilters<T>;
-        limit?: number;
-        offset?: number;
-        preload?: P;
-        sort?: [string, "ASC" | "DESC"];
-        contentView?: "live" | "preview";
-        returnCount?: RC;
-    }) => Promise<RC extends true ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T["__fields"], P>> : EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
-    inspect: () => Promise<InspectResponse>;
+    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(contentTypeDef: T, options?: GetEntriesOptions<T, P, RC>) => Promise<RC extends true ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T["__fields"], P>> : EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
+    inspect: (controls?: RequestOptions) => Promise<InspectResponse>;
     /**
      * Check read access. Returns false for denied access or an empty workspace,
      * where the requested view cannot be verified. Other failures are thrown.
      */
-    validateContentView: (view: "live" | "preview") => Promise<boolean>;
+    validateContentView: (view: "live" | "preview", controls?: RequestOptions) => Promise<boolean>;
     sync: (contentTypes: (ContentTypeDefinition | {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
     })[], options?: SyncOptions) => Promise<SyncResult>;
     syncWithFields: (contentTypes: Parameters<ReturnType<typeof syncWithFields>>[0], options?: Parameters<ReturnType<typeof syncWithFields>>[1]) => Promise<SyncResult>;
-    upload: (file: File | Blob, filename?: string) => Promise<UploadedFile>;
+    updateEntries: <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, options: UpdateEntriesOptions<NoInferContentType<T>, P>) => Promise<UpdateEntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata>>;
+    upload: (file: File | Blob, filename?: string, controls?: RequestOptions) => Promise<UploadedFile>;
     createEntry: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, fieldValues: FieldValues, optionsParam?: boolean | {
+    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, fieldValues: CreateFieldValues<NoInferContentType<T>>, optionsParam?: boolean | (RequestOptions & {
         published?: boolean;
         preload?: P;
-    }) => Promise<P extends undefined ? NormalizedEntryMetadata : {
+    })) => Promise<P extends undefined ? NormalizedEntryMetadata : {
         data: BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata;
     }>;
     updateEntry: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, fieldValues: FieldValues, optionsParam?: boolean | {
+    }, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, entryId: string, fieldValues: UpdateFieldValues<NoInferContentType<T>>, optionsParam?: boolean | (RequestOptions & {
         published?: boolean;
         preload?: P;
-    }) => Promise<P extends undefined ? NormalizedEntryMetadata : {
+    })) => Promise<P extends undefined ? NormalizedEntryMetadata : {
         data: BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata;
     }>;
-    deleteContentType: (contentTypeId: string) => Promise<void>;
+    deleteContentType: (contentTypeId: string, controls?: RequestOptions) => Promise<void>;
 };
 /**
  * Utility: safely get an entry ID whether the field is a raw id string or an expanded object

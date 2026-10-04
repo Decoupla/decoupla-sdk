@@ -244,7 +244,7 @@ const skip = !API_TOKEN || !WORKSPACE;
         }
 
         try {
-            const result = await config.getEntry(BlogPostContentType, createdPostId, {
+            const result = await config.getEntryOrThrow(BlogPostContentType, createdPostId, {
                 preload: ['Author']
             });
 

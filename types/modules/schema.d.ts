@@ -1,11 +1,13 @@
 import { z } from "zod";
-import type { ImageObject, TextObject } from "../types";
+import type { ImageObject, VideoObject, TextObject } from "../types";
 export declare function snakeToCamel(str: string): string;
 export declare function camelToSnake(str: string): string;
 export declare const initSchema: z.ZodObject<{
     apiToken: z.ZodString;
     workspace: z.ZodString;
     requestTimeoutMs: z.ZodDefault<z.ZodNumber>;
+    apiUrl: z.ZodOptional<z.ZodURL>;
+    fetch: z.ZodOptional<z.ZodCustom<typeof fetch, typeof fetch>>;
 }, z.core.$strip>;
 export type InitSchema = z.input<typeof initSchema>;
 export declare const requestSchema: z.ZodObject<{
@@ -22,6 +24,8 @@ export declare const requestSchema: z.ZodObject<{
     entry_id: z.ZodOptional<z.ZodString>;
     filters: z.ZodOptional<z.ZodAny>;
     preload: z.ZodOptional<z.ZodType<unknown, unknown, z.core.$ZodTypeInternals<unknown, unknown>>>;
+    images: z.ZodOptional<z.ZodUnknown>;
+    videos: z.ZodOptional<z.ZodUnknown>;
     sort: z.ZodOptional<z.ZodArray<z.ZodTuple<[z.ZodString, z.ZodEnum<{
         ASC: "ASC";
         DESC: "DESC";
@@ -183,9 +187,9 @@ type InferFieldType<T extends FieldSchemaConfig> = T extends {
     type: 'image[]';
 } ? ImageObject[] : T extends {
     type: 'video';
-} ? string : T extends {
+} ? VideoObject : T extends {
     type: 'video[]';
-} ? string[] : T extends {
+} ? VideoObject[] : T extends {
     type: 'reference';
     references: readonly (infer Ref)[];
 } ? Ref extends string ? string | Record<string, any> : Ref extends {

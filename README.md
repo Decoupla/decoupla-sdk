@@ -303,13 +303,17 @@ const client = createClient({
 
 ```typescript
 {
-  getEntry: (contentTypeDef, entryId, options?) => Promise<{ data: Entry }>
+  getEntry: (contentTypeDef, entryId, options?) => Promise<{ data: Entry | null }>
+  getEntryOrThrow: (contentTypeDef, entryId, options?) => Promise<{ data: Entry }>
+  iterateEntries: (contentTypeDef, options?) => AsyncGenerator<Entry>
+  getAllEntries: (contentTypeDef, options?) => Promise<{ data: Entry[] }>
   getEntries: (contentTypeDef, options?) => Promise<{ data: Entry[] }> // or { data: Entry[], count: number } with returnCount
   // createEntry/updateEntry accept an options object { published?: boolean; preload?: PreloadSpec }.
   // When `preload` is provided the client returns the full normalized entry in `{ data: ... }`.
   createEntry: (contentTypeDef, fieldValues, publishedOrOptions?) => Promise<NormalizedEntryMetadata | { data: Entry }>
   updateEntry: (contentTypeDef, entryId, fieldValues, publishedOrOptions?) => Promise<NormalizedEntryMetadata | { data: Entry }>
-  upload: (file, filename?) => Promise<UploadResult>
+  updateEntries: (contentTypeDef, options) => Promise<{ data: Entry[], updatedCount: number, failedCount: number, errors: ApiErrorDetail[][] }>
+  upload: (file, filename?, controls?) => Promise<UploadResult>
   inspect: () => Promise<InspectResponse>
   sync: (contentTypes) => Promise<SyncResult>
   syncWithFields: (contentTypes, options?) => Promise<SyncResult>
@@ -330,7 +334,7 @@ const post = await client.getEntry(BlogPost, 'post-id-123', {
   preload: ['author'], // Preload references
 });
 
-console.log(post.data.title); // Type-safe field access
+if (post.data) console.log(post.data.title); // Type-safe field access
 ```
 
 **Options:**
@@ -366,6 +370,24 @@ const post = await client.getEntry(BlogPost, 'post-id-123', {
 ```
 
 Both `getEntry` and `getEntries` accept the same nested-array preload form and the client supports TypeScript 5 const-generic inference so inline literals do not require `as const`.
+
+`getEntry` returns `{ data: null }` when the entry does not exist or is not visible
+in the requested content view. Check `data` before accessing fields. This replaces
+the previous empty-object behavior and makes the return type nullable.
+
+### `getEntryOrThrow(contentTypeDef, entryId, options?)`
+
+Use this when the entry must exist. It accepts the same preload, image, and content
+view options as `getEntry`, returns non-null `data`, and throws `EntryNotFoundError`
+for a missing entry. The error exposes `contentType` and `entryId`; authorization
+and network errors propagate unchanged.
+
+```ts
+const post = await client.getEntryOrThrow(BlogPost, entryId, {
+  preload: ['Author'],
+});
+console.log(post.data.title);
+```
 
 ### `getEntries(contentTypeDef, options?)`
 
@@ -411,6 +433,41 @@ const result = await client.getEntries(BlogPost, {
 console.log(result.data);  // Array of entries
 console.log(result.count); // Total matching entries
 ```
+
+### Iterate or fetch all entries
+
+`iterateEntries` lazily yields individual entries. Breaking the loop stops future
+page requests. `getAllEntries` collects those entries into `{ data: Entry[] }`.
+Both preserve filters, preloads, image options, and `contentView`.
+
+```ts
+for await (const post of client.iterateEntries(BlogPost, {
+  pageSize: 100,
+  preload: ['Author'],
+  sort: [['Title', 'ASC']],
+})) {
+  console.log(post.title);
+}
+
+const allPosts = await client.getAllEntries(BlogPost, {
+  pageSize: 100,
+  contentView: 'preview',
+  images: { featuredImage: { width: 400, format: 'webp' } },
+});
+console.log(allPosts.data.length);
+```
+
+`pageSize` defaults to 100 and must be a positive safe integer. `offset` optionally
+selects the starting position. These helpers use `pageSize` instead of `limit` and
+do not accept `returnCount`. They stop at a short or empty page and propagate any
+request failure. `getAllEntries` keeps all results in memory; use the iterator for
+large datasets.
+
+Sorting supports an array of field/direction tuples, with schema, camelCase, or
+snake_case field names. Scalar fields and `id` are sortable; images, references,
+arrays, JSON, and text fields are excluded. Pagination appends `['id', 'ASC']` when
+no ID sort is supplied, giving a stable tie-breaker. Offset pagination is not a
+snapshot: concurrent inserts, deletions, or edits can still change page boundaries.
 
 ### Filter Operations
 
@@ -531,6 +588,34 @@ const updated = await client.updateEntry(BlogPost, 'post-id-123', {
 
 // With preload, updateEntry returns { data: { ...full entry with relations... } }
 console.log(updated.data.author); // Preloaded relation
+```
+
+### Typed field values for creates and updates
+
+Write values are inferred from the content type. Creates require all fields marked
+`required: true`; updates accept any subset. Field names support schema, camelCase,
+and snake_case spellings. Unknown fields and incompatible values are rejected by
+TypeScript. Literal string options declared with `as const` constrain allowed values.
+
+Image, video, and reference writes accept IDs or objects containing an `id`, and
+array fields accept arrays of the corresponding write values. Read objects remain
+separately typed. Optional fields can be cleared with `null`.
+
+Existing coercions remain supported, including numeric strings, boolean strings
+`'true'`/`'false'` or numbers `0`/`1`, and `Date` values for date/time fields. Runtime
+validation still checks actual values and collects field errors.
+
+```ts
+import type { CreateFieldValues, UpdateFieldValues } from '@decoupla/sdk';
+
+const values: CreateFieldValues<typeof BlogPost> = {
+  Title: 'New post',
+  Content: 'Body',
+  Author: { id: authorId },
+};
+const changes: UpdateFieldValues<typeof BlogPost> = { ViewCount: '150' };
+await client.createEntry(BlogPost, values);
+await client.updateEntry(BlogPost, entryId, changes);
 ```
 
 ### `upload(file, filename?)`
@@ -943,3 +1028,134 @@ In the npm settings for `@decoupla/sdk`, add a GitHub Actions trusted publisher:
 The workflow uses OIDC with Node 24; no npm publish token secret is needed. See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/). The repository must allow the workflow's `GITHUB_TOKEN` to push the version commit to `main` and create release tags. If branch rules prevent that push, the workflow stops before npm publication.
 
 If the npm publish job fails after the version commit/tag succeeds, fix the publishing configuration and choose **Re-run failed jobs** on that run. This reuses the tested archive and version without another bump. The artifact is retained for seven days. GitHub and npm are separate services: the version commit/tag can exist even if npm publication fails.
+
+### Resize and convert images when reading entries
+
+`getEntry` and `getEntries` accept an `images` tree. Image field names can use the
+schema spelling (`FeaturedImage`) or returned camelCase spelling (`featuredImage`).
+Use `references` to configure images inside preloaded entities:
+
+```ts
+const posts = await client.getEntries(Post, {
+  preload: ['Author', ['RelatedPosts', ['Author']]],
+  images: {
+    featuredImage: { width: 1200, format: 'webp' },
+    references: {
+      author: { avatar: { width: 80, height: 80, format: 'webp' } },
+      relatedPosts: {
+        featuredImage: { width: 400, format: 'webp' },
+        references: {
+          author: { avatar: { width: 40, height: 40, format: 'webp' } },
+        },
+      },
+    },
+  },
+});
+
+const image = posts.data[0].featuredImage;
+// image.width / image.height / image.format describe the source.
+// image.output.url / width / height / format / byte_size describe the delivered variant.
+```
+
+The same options work with `getEntry(Post, entryId, { preload, images })` and with
+`contentView: 'preview'`. One dimension preserves aspect ratio. Providing both
+resizes and center-crops to that size. Omitting `format` preserves the source format;
+providing only `format` converts without resizing. Supported output formats are
+`jpg`, `png`, `webp`, and `avif`; SVG conversion is not exposed.
+
+Image arrays apply the options to every image. Reference arrays apply their branch
+to every preloaded entity, and the same source can have different variants on
+different reference paths. Every configured reference must also appear in `preload`.
+Polymorphic references apply options to matching fields on their declared targets.
+Other images return their source URL without generating a duplicate variant.
+
+Dimensions must be integers from 1 to 8192; resulting images cannot exceed 40 million
+pixels. Image options support up to 10 reference levels. Invalid fields, formats,
+options, or references missing from `preload` produce validation errors. Variants
+are generated by the backend and reused on subsequent reads.
+
+Image fields consistently return image objects, including `getEntry` without
+preloads (which previously returned image IDs). Nested preloaded entry fields are
+normalized to camelCase; JSON contents and image metadata retain their own keys.
+
+
+### Video fields and thumbnails
+
+Video fields return a `VideoObject` with `id`, `width`, `height`, `duration`,
+`format`, `byte_size`, `output.url` for playback, and a nullable `thumbnail` image.
+Video arrays return an array of these objects. This applies to root fields and
+preloaded entities.
+
+Use `videos` on reads to resize or convert thumbnails with the same image options:
+
+```typescript
+const posts = await client.getEntries(Post, {
+  preload: ['Author'],
+  videos: {
+    heroVideo: { thumbnail: { width: 640, format: 'webp' } },
+    references: {
+      author: { introVideo: { thumbnail: { width: 160, format: 'webp' } } },
+    },
+  },
+});
+```
+
+Every configured reference must appear in `preload`. Without thumbnail options,
+the source thumbnail is returned; a video without a thumbnail returns `null` in
+that property. Playback videos are not transcoded by these options. Deploy the
+updated backend before using the SDK's video response types.
+
+### Bulk updates
+
+`updateEntries` applies typed partial values to entries selected by filters:
+
+```typescript
+const result = await client.updateEntries(Post, {
+  filters: { Title: { eq: 'Old title' } },
+  values: { Title: 'New title' },
+  published: false,
+  limit: 100,
+  sort: [['id', 'ASC']],
+});
+console.log(result.updatedCount, result.failedCount, result.errors);
+```
+
+Filters are required; explicitly pass `{}` to select all matching entries.
+The default limit is 1000 and `published` defaults to `true`. Set both explicitly
+when appropriate. Filters, sorting, offsets, content views, and preloads use the
+same options as `getEntries`. The backend selects active entries; this is not a
+way to update every draft. Bulk updates are not atomic: successful updates remain
+applied when other entries fail. `data` contains successful entries and `errors`
+contains a list of backend errors for each failed entry. Request failures throw.
+
+### Custom endpoints, fetch, and cancellation
+
+```typescript
+const client = createClient({
+  workspace: 'my-workspace',
+  apiToken: 'secret-token',
+  apiUrl: 'http://localhost:4000/public/api/1.0/workspace/',
+  fetch: globalThis.fetch, // Optional custom fetch implementation
+  requestTimeoutMs: 30_000,
+});
+const controller = new AbortController();
+const pending = client.getEntries(Post, {
+  signal: controller.signal,
+  requestTimeoutMs: 5_000,
+});
+controller.abort();
+```
+
+`apiUrl` is the endpoint prefix; the client appends the encoded workspace name.
+Each client keeps its own endpoint and fetch implementation. Reads, pagination,
+writes, inspection, schema sync, uploads, and content-type deletion support
+`signal` and a per-call `requestTimeoutMs` override. Pass these in the usual options
+object; uploads use `upload(file, filename, controls)` and deletion uses
+`deleteContentType(id, controls)`. Creates and single-entry updates accept an options
+object instead of the publication boolean. Inspection and content-view validation
+accept a controls object as their last argument.
+
+Caller cancellation throws an error named `AbortError`; timeout failures throw
+`ApiError`. Both cover response-body parsing as well as the request. Cancelling a
+write cannot undo changes the server has already applied. Schema sync can report
+mutation failures in its result, including cancellation after earlier writes.

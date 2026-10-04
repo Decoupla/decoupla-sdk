@@ -241,7 +241,7 @@ export function buildCreateFieldRequest(
         required: fieldDef.required ?? false,
         description: fieldDef.settings?.description,
         is_label: fieldDef.isLabel ?? false,
-        options: fieldDef.options,
+        options: fieldDef.options ? [...fieldDef.options] : undefined,
         meta: Object.keys(meta).length > 0 ? meta : undefined,
     };
 }

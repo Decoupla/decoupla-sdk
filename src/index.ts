@@ -31,8 +31,21 @@
  *   const entry = await client.createEntry('author', { Name: 'John' });
  */
 
-import { apiFetch, ApiError } from "./modules/transport";
-export { ApiError } from "./modules/transport";
+import { normalizeVideos } from './modules/videos';
+import { normalizeImages } from './modules/images';
+import type { BrandedContentType } from './types/generics';
+import type { GetEntryOptions, GetEntriesOptions, PaginationOptions, UpdateEntriesOptions, UpdateEntriesResponse } from './types/queries';
+import type { CreateFieldValues, UpdateFieldValues } from './types/writes';
+export type { RequestOptions } from "./modules/transport";
+export type { VideoTransform, VideoOptions, VideoOptionsFor } from "./types/videos";
+export type { UpdateEntriesOptions, UpdateEntriesResponse } from "./types/queries";
+export type { GetEntryOptions, GetEntriesOptions, PaginationOptions, SortField, SortSpec } from './types/queries';
+export type { CreateFieldValues, UpdateFieldValues, FieldWriteValue, EntryIdInput, JsonValue } from './types/writes';
+export type { ImageFormat, ImageTransform, ImageOptions, ImageOptionsFor } from './types/images';
+
+import { apiFetch, ApiError, requestUrl, type RequestOptions } from "./modules/transport";
+export { ApiError, EntryNotFoundError } from "./modules/transport";
+import { EntryNotFoundError } from "./modules/transport";
 import { initSchema, requestSchema, type InitSchema, type RequestSchema, snakeToCamel, camelToSnake } from "./modules/schema";
 import type {
     EntryResponse,
@@ -41,6 +54,7 @@ import type {
     ErrorResponse,
     InspectResponse,
     ImageObject,
+    VideoObject,
     TextObject,
     PreloadField,
     PreloadSpec,
@@ -75,6 +89,7 @@ import {
 } from "./modules/upload";
 import {
     isValidUUID,
+    normalizeReadEntry,
     validateAndCoerceFieldValues,
 } from "./modules/entry";
 import { buildCreateFieldRequest, buildUpdateFieldRequest, buildCreateContentTypeRequest } from "./modules/sync-api";
@@ -89,6 +104,7 @@ export type {
     ErrorResponse,
     InspectResponse,
     ImageObject,
+    VideoObject,
     TextObject,
     PreloadField,
     PrimitiveFieldType,
@@ -113,7 +129,7 @@ const {
     DECOUPLA_API_URL_BASE = "https://api.decoupla.com/public/api/1.0/workspace/",
 } = typeof process !== "undefined" ? process.env : {};
 
-const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse> => {
+const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema, controls: RequestOptions = {}): Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse> => {
 
     const { apiToken, workspace, requestTimeoutMs } = options;
 
@@ -127,6 +143,8 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
         limit,
         offset,
         return_count,
+        images,
+        videos,
     } = requestSchema.parse(request);
 
     const sendSort = (sort || []).reduce((acc, [field, direction]) => {
@@ -152,18 +170,21 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema): 
         limit,
         offset,
         return_count,
+        images: normalizeImages(images),
+        videos: normalizeVideos(videos),
     };
 
     if (outgoingApiType) requestBody.api_type = outgoingApiType;
 
-    const req = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+    const req = await apiFetch(requestUrl(options, DECOUPLA_API_URL_BASE), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    }, requestTimeoutMs);
+        signal: controls.signal,
+    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
 
     const respData = await req.json();
     const valid = op_type === 'inspect'
@@ -277,13 +298,13 @@ type BuildEntryType<TDef extends ContentTypeDefinition> = {
     : TDef['fields'][K] extends { type: 'image[]' }
     ? ImageObject[] | undefined
     : TDef['fields'][K] extends { type: 'video'; required: true }
-    ? TextObject
+    ? VideoObject
     : TDef['fields'][K] extends { type: 'video' }
-    ? TextObject | undefined
+    ? VideoObject | undefined
     : TDef['fields'][K] extends { type: 'video[]'; required: true }
-    ? TextObject[]
+    ? VideoObject[]
     : TDef['fields'][K] extends { type: 'video[]' }
-    ? TextObject[] | undefined
+    ? VideoObject[] | undefined
     : TDef['fields'][K] extends { type: 'json'; required: true }
     ? Record<string, any>
     : TDef['fields'][K] extends { type: 'json' }
@@ -394,13 +415,13 @@ type BuildEntryFromFields<TFields extends Record<string, FieldDefinition>> = {
     : TFields[K] extends { type: 'image[]' }
     ? ImageObject[] | undefined
     : TFields[K] extends { type: 'video'; required: true }
-    ? TextObject
+    ? VideoObject
     : TFields[K] extends { type: 'video' }
-    ? TextObject | undefined
+    ? VideoObject | undefined
     : TFields[K] extends { type: 'video[]'; required: true }
-    ? TextObject[]
+    ? VideoObject[]
     : TFields[K] extends { type: 'video[]' }
-    ? TextObject[] | undefined
+    ? VideoObject[] | undefined
     : TFields[K] extends { type: 'json'; required: true }
     ? Record<string, any>
     : TFields[K] extends { type: 'json' }
@@ -543,13 +564,13 @@ type BuildEntryFromFieldsWithPreload<
         : TFields[K] extends { type: 'image[]' }
         ? ImageObject[] | undefined
         : TFields[K] extends { type: 'video'; required: true }
-        ? TextObject
+        ? VideoObject
         : TFields[K] extends { type: 'video' }
-        ? TextObject | undefined
+        ? VideoObject | undefined
         : TFields[K] extends { type: 'video[]'; required: true }
-        ? TextObject[]
+        ? VideoObject[]
         : TFields[K] extends { type: 'video[]' }
-        ? TextObject[] | undefined
+        ? VideoObject[] | undefined
         : TFields[K] extends { type: 'json'; required: true }
         ? Record<string, any>
         : TFields[K] extends { type: 'json' }
@@ -561,12 +582,8 @@ const getEntry = (request: Request) =>
     async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined>(
         contentTypeDef: T,
         entryId: string,
-        options?: {
-            preload?: P;
-            /** Preferred client option name: selects which dataset (live vs preview) to read. */
-            contentView?: 'live' | 'preview';
-        }
-    ): Promise<{ data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }> => {
+        options?: GetEntryOptions<T, P>
+    ): Promise<{ data: (BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata) | null }> => {
         // For get_entry, entry_id is a top-level parameter, not in filters
         // Normalize preload shapes to the backend's nested-array grammar
         const normalizePreload = (p: any): any => {
@@ -615,55 +632,83 @@ const getEntry = (request: Request) =>
             type: contentTypeDef.__definition.name,
             entry_id: entryId,
             preload: normalizePreload(options?.preload || []),
+            images: options?.images,
+            videos: options?.videos,
             api_type: chosenApiType,
         } as any;
 
         try { debug('[getEntry] request body:', JSON.stringify(reqBody)); } catch (e) { }
 
         // Use the shared request helper which already handles auth/errors/parsing
-        const resp = await request(reqBody as any) as any;
+        const resp = await request(reqBody as any, options) as any;
 
         try { debug('[getEntry] raw response:', JSON.stringify(resp, null, 2)); } catch (e) { }
 
-        const entry = resp?.data?.entry || resp?.data?.node;
+        const entry = resp?.data?.entry ?? resp?.data?.node ?? null;
+        if (entry === null) return { data: null };
 
         // Normalize snake_case field names to camelCase for the flat response
-        const normalizedEntry: Record<string, any> = {};
-        for (const [key, value] of Object.entries(entry || {})) {
-            normalizedEntry[snakeToCamel(key)] = value;
-        }
+        const normalizedEntry = normalizeReadEntry(entry || {}, reqBody.preload);
 
         return {
             data: normalizedEntry as BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata,
         };
     }
 
+const getEntryOrThrow = (request: Request) =>
+    async <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(
+        contentTypeDef: T,
+        entryId: string,
+        options?: GetEntryOptions<T, P>
+    ): Promise<{ data: BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata }> => {
+        const response = await getEntry(request)(contentTypeDef, entryId, options);
+        if (response.data === null) throw new EntryNotFoundError(contentTypeDef.__definition.name, entryId);
+        return { data: response.data };
+    };
+
+/** Offset pagination uses an ID tie-breaker; changing datasets are not a snapshot. */
+const iterateEntries = (request: Request) =>
+    async function* <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(
+        contentTypeDef: T,
+        options: PaginationOptions<T, P> = {}
+    ): AsyncGenerator<BuildEntryFromFieldsWithPreload<T['__fields'], P>, void, unknown> {
+        const { pageSize = 100, offset: initialOffset = 0, ...query } = options;
+        if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new Error('pageSize must be a positive safe integer');
+        if (!Number.isSafeInteger(initialOffset) || initialOffset < 0) throw new Error('offset must be a non-negative safe integer');
+        let offset = initialOffset;
+        const sort = [...(query.sort || [])];
+        if (!sort.some(([field]) => field === 'id')) sort.push(['id', 'ASC']);
+        while (true) {
+            const page = await getEntries(request)(contentTypeDef, { ...query, sort, preload: options.preload, offset, limit: pageSize });
+            for (const entry of page.data) {
+                if (options.signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
+                yield entry;
+            }
+            if (page.data.length < pageSize) return;
+            offset += page.data.length;
+        }
+    };
+
+const getAllEntries = (request: Request) =>
+    async <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(
+        contentTypeDef: T,
+        options: PaginationOptions<T, P> = {}
+    ): Promise<EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>> => {
+        const data: Array<BuildEntryFromFieldsWithPreload<T['__fields'], P>> = [];
+        for await (const entry of iterateEntries(request)(contentTypeDef, options)) data.push(entry);
+        return { data };
+    };
+
 const inspect = (request: Request) =>
-    async () => {
+    async (controls: RequestOptions = {}) => {
         const resp = await request({
             op_type: 'inspect',
-        });
+        }, controls);
 
         return resp as InspectResponse;
     }
 
-const getEntries = (request: Request) =>
-    async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(
-        contentTypeDef: T,
-        options: {
-            filters?: TypeSafeFilters<T>;
-            limit?: number;
-            offset?: number;
-            preload?: P;
-            sort?: [string, "ASC" | "DESC"];
-            contentView?: 'live' | 'preview';
-            returnCount?: RC;
-        } = {}
-    ): Promise<
-        RC extends true
-            ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
-            : EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
-    > => {
+const prepareEntriesQuery = async (request: Request, contentTypeDef: BrandedContentType<any>, options: any) => {
         const {
             filters,
             limit,
@@ -717,7 +762,7 @@ const getEntries = (request: Request) =>
         // Handle reference field naming: backend expects {fieldName}_{contentTypeName}_filter
         // First, get the inspect data to map UUIDs to content type names
         try {
-            const inspectResult = await inspect(request)();
+            const inspectResult = await inspect(request)(options);
 
             // Build a mapping of reference type UUIDs to content type names/slugs
             const uuidToContentTypeName = new Map<string, string>();
@@ -850,6 +895,7 @@ const getEntries = (request: Request) =>
 
             backendFilters = transformReferenceFilters(backendFilters, fieldReferenceMap);
         } catch (error) {
+            if (options.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
             // If inspection fails, log but continue with the original filters
             console.warn('Failed to transform reference field filters:', error);
         }
@@ -862,11 +908,27 @@ const getEntries = (request: Request) =>
             offset,
             filters: backendFilters,
             preload: normalizePreload(preload),
-            sort,
+            sort: sort.map(([field, direction]: [string, 'ASC' | 'DESC']) => [camelToSnake(field), direction]),
             return_count: optReturnCount || undefined,
+            images: options.images,
+            videos: options.videos,
         };
+        return reqBody;
+};
+
+const getEntries = (request: Request) =>
+    async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(
+        contentTypeDef: T,
+        options: GetEntriesOptions<T, P, RC> = {}
+    ): Promise<
+        RC extends true
+            ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
+            : EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
+    > => {
+        const optReturnCount = options.returnCount;
+        const reqBody = await prepareEntriesQuery(request, contentTypeDef, options);
         try { debug('[getEntries] request body:', JSON.stringify(reqBody, null, 2)); } catch (e) { }
-        const resp = await request<any[]>(reqBody as any);
+        const resp = await request<any[]>(reqBody as any, options);
 
         try { debug('[getEntries] raw response:', JSON.stringify(resp, null, 2)); } catch (e) { }
 
@@ -884,15 +946,7 @@ const getEntries = (request: Request) =>
         }
 
         // Normalize field names from snake_case to camelCase
-        let normalizedEntries = rawEntries.map((entry: any) => {
-            const normalized: Record<string, any> = { id: entry.id };
-            for (const [key, value] of Object.entries(entry)) {
-                if (key !== 'id') {
-                    normalized[snakeToCamel(key)] = value;
-                }
-            }
-            return normalized;
-        }) as Array<BuildEntryFromFieldsWithPreload<T['__fields'], P>>;
+        const normalizedEntries = rawEntries.map((entry: any) => normalizeReadEntry(entry, reqBody.preload)) as Array<BuildEntryFromFieldsWithPreload<T['__fields'], P>>;
 
         // Rely on server-side preload expansion for get_entries responses. Client-side per-entry
         // expansion/fetching has been removed to avoid extra round-trips.
@@ -937,7 +991,7 @@ const sync = (request: Request) => {
             // ignore
         }
 
-        const remoteInspect = await inspect(request)();
+        const remoteInspect = await inspect(request)(options);
 
         // Build remote content type map from inspect response
         // First, create a mapping of content type IDs to names
@@ -1145,7 +1199,7 @@ const syncWithFields = (request: Request) => {
             return ct;
         }) as ContentTypeDefinition[];
 
-        let remoteInspect = await inspect(request)();
+        let remoteInspect = await inspect(request)(options);
 
         // Build remote content type mappings
         const contentTypeIdToName = new Map<string, string>();
@@ -1235,7 +1289,7 @@ const syncWithFields = (request: Request) => {
         // PHASE 2: Refresh inspect if we created content types
         // ============================================
         if (!dryRun && actions.some(action => action.type === 'create')) {
-            remoteInspect = await inspect(request)();
+            remoteInspect = await inspect(request)(options);
             // Rebuild the mapping with fresh data
             contentTypeIdToName.clear();
             contentTypeNameToId.clear();
@@ -1404,7 +1458,7 @@ const syncWithFields = (request: Request) => {
                         };
 
                         if (changes.options) {
-                            updateChanges.options = desiredOptions;
+                            updateChanges.options = desiredOptions ? [...desiredOptions] : undefined;
                         }
                         if (changes.isLabel) {
                             updateChanges.isLabel = desiredIsLabel;
@@ -1558,7 +1612,7 @@ const syncWithFields = (request: Request) => {
 /**
  * Upload a file (image or video) to the backend
  */
-const upload = (options: InitSchema) => async (file: File | Blob, filename?: string): Promise<UploadedFile> => {
+const upload = (options: InitSchema) => async (file: File | Blob, filename?: string, controls: RequestOptions = {}): Promise<UploadedFile> => {
     const { apiToken, workspace, requestTimeoutMs } = options;
 
     // If Blob is provided, we need a filename
@@ -1580,13 +1634,14 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
     formData.append('file', file, fname);
 
     // Make the upload request
-    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+    const response = await apiFetch(requestUrl(options, DECOUPLA_API_URL_BASE), {
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${apiToken}`,
         },
         body: formData,
-    }, requestTimeoutMs);
+        signal: controls.signal,
+    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
 
     const respData = await response.json() as any;
 
@@ -1610,15 +1665,18 @@ const normalizeEntryMetadata = (entry: EntryMetadata): NormalizedEntryMetadata =
 /**
  * Create a new entry (instance of a content type)
  */
+// Keep write values from widening the content-type inference (compatible with TypeScript 5.0).
+type NoInferContentType<T> = [T][T extends unknown ? 0 : never];
+
 const createEntry = (options: InitSchema) => async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined>(
     contentTypeDef: T,
-    fieldValues: FieldValues,
+    fieldValues: CreateFieldValues<NoInferContentType<T>>,
     // Backwards-compatible: callers historically passed a boolean `published` as the 3rd arg.
     // New signature accepts an options object { published?, preload? }.
-    optionsParam?: boolean | {
+    optionsParam?: boolean | (RequestOptions & {
         published?: boolean;
         preload?: P;
-    }
+    })
 ): Promise<
     P extends undefined
         ? NormalizedEntryMetadata
@@ -1631,7 +1689,7 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
 
     // Validate and coerce field values against field definitions
     const fieldDefs = contentTypeDef.__definition?.fields || {};
-    const normalizedFieldValues = validateAndCoerceFieldValues(fieldValues, fieldDefs, { isCreate: true });
+    const normalizedFieldValues = validateAndCoerceFieldValues(fieldValues as FieldValues, fieldDefs, { isCreate: true });
 
     // Normalize preload shapes to the backend's nested-array grammar (same as getEntry/getEntries)
     const normalizePreload = (p: any): any => {
@@ -1686,14 +1744,15 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
     }
 
     // Make the request
-    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+    const response = await apiFetch(requestUrl(options, DECOUPLA_API_URL_BASE), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    }, requestTimeoutMs);
+        signal: opts.signal,
+    }, opts.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
 
     const respData = await response.json() as any;
 
@@ -1729,13 +1788,13 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
 const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined>(
     contentTypeDef: T,
     entryId: string,
-    fieldValues: FieldValues,
+    fieldValues: UpdateFieldValues<NoInferContentType<T>>,
     // Backwards-compatible: callers historically passed a boolean `published` as the 4th arg.
     // New signature accepts an options object { published?, preload? }.
-    optionsParam?: boolean | {
+    optionsParam?: boolean | (RequestOptions & {
         published?: boolean;
         preload?: P;
-    }
+    })
 ): Promise<
     P extends undefined
         ? NormalizedEntryMetadata
@@ -1750,7 +1809,7 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
 
     // Validate and coerce field values against field definitions
     const fieldDefs = contentTypeDef.__definition?.fields || {};
-    const normalizedFieldValues = validateAndCoerceFieldValues(fieldValues, fieldDefs, { isCreate: false });
+    const normalizedFieldValues = validateAndCoerceFieldValues(fieldValues as FieldValues, fieldDefs, { isCreate: false });
 
     // Build request
     const requestBody: any = {
@@ -1807,14 +1866,15 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
     }
 
     // Make the request
-    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+    const response = await apiFetch(requestUrl(options, DECOUPLA_API_URL_BASE), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    }, requestTimeoutMs);
+        signal: opts.signal,
+    }, opts.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
 
     const respData = await response.json() as any;
 
@@ -1847,7 +1907,39 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
 /**
  * Delete a content type by ID
  */
-const deleteContentType = (options: InitSchema) => async (contentTypeId: string): Promise<void> => {
+const updateEntries = (config: InitSchema) =>
+    async <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(
+        contentTypeDef: T,
+        options: UpdateEntriesOptions<NoInferContentType<T>, P>
+    ): Promise<UpdateEntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P> & NormalizedEntryMetadata>> => {
+        if (!options?.filters || typeof options.filters !== 'object' || Array.isArray(options.filters)) {
+            throw new Error('updateEntries requires an explicit filters object; use {} to select all entries');
+        }
+        const fieldValues = validateAndCoerceFieldValues(options.values as FieldValues, contentTypeDef.__fields, { isCreate: false });
+        const reqBody = await prepareEntriesQuery(makeRequest(config), contentTypeDef, { ...options, limit: options.limit ?? 1000 });
+        requestSchema.parse(reqBody);
+        reqBody.sort = reqBody.sort.map(([field, direction]: [string, string]) => ({ field, direction }));
+        reqBody.op_type = 'update_entry';
+        reqBody.field_values = fieldValues;
+        reqBody.published = options.published ?? true;
+        delete reqBody.return_count;
+        const response = await apiFetch(requestUrl(config, DECOUPLA_API_URL_BASE), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiToken}` },
+            body: JSON.stringify(reqBody), signal: options.signal,
+        }, options.requestTimeoutMs ?? config.requestTimeoutMs, config.fetch);
+        const body = await response.json();
+        const data = body.data;
+        if (!Array.isArray(data?.entries) || !Number.isInteger(data.updated_count) || !Number.isInteger(data.failed_count) || !Array.isArray(data.errors)) {
+            throw new ApiError('Invalid bulk update response');
+        }
+        return {
+            data: data.entries.map((entry: any) => normalizeReadEntry(entry, reqBody.preload)),
+            updatedCount: data.updated_count, failedCount: data.failed_count, errors: data.errors,
+        };
+    };
+
+const deleteContentType = (options: InitSchema) => async (contentTypeId: string, controls: RequestOptions = {}): Promise<void> => {
     const { apiToken, workspace, requestTimeoutMs } = options;
 
     // Validate content type ID
@@ -1860,14 +1952,15 @@ const deleteContentType = (options: InitSchema) => async (contentTypeId: string)
         content_type_id: contentTypeId,
     };
 
-    const response = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+    const response = await apiFetch(requestUrl(options, DECOUPLA_API_URL_BASE), {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiToken}`,
         },
         body: JSON.stringify(requestBody),
-    }, requestTimeoutMs);
+        signal: controls.signal,
+    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
 
     const respData = await response.json() as any;
 
@@ -1875,68 +1968,73 @@ const deleteContentType = (options: InitSchema) => async (contentTypeId: string)
 };
 
 export const createClient = (config: InitSchema) => {
-    const { apiToken, workspace, requestTimeoutMs } = initSchema.parse(config);
-    const request = makeRequest({ apiToken, workspace, requestTimeoutMs });
+    const clientOptions = initSchema.parse(config);
+    const { apiToken, workspace, requestTimeoutMs } = clientOptions;
+    const request = makeRequest(clientOptions);
 
     // Remote mutation helpers used by syncWithFields when invoked from the CLI.
-    const createContentTypeRemote = async (ct: ContentTypeDefinition) => {
+    const createContentTypeRemote = async (ct: ContentTypeDefinition, controls: RequestOptions = {}) => {
         const reqBody = buildCreateContentTypeRequest(ct);
         debug('[sync] createContentType request:', JSON.stringify(reqBody));
-        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+        const resp = await apiFetch(requestUrl(clientOptions, DECOUPLA_API_URL_BASE), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        }, requestTimeoutMs);
+            signal: controls.signal,
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
         const data = await resp.json();
         debug('[sync] createContentType response:', JSON.stringify(data));
         return data;
     };
 
-    const createFieldRemote = async (modelId: string, fieldName: string, fieldDef: FieldDefinition) => {
+    const createFieldRemote = async (modelId: string, fieldName: string, fieldDef: FieldDefinition, controls: RequestOptions = {}) => {
         const reqBody = buildCreateFieldRequest(modelId, fieldName, fieldDef);
         debug('[sync] createField request:', JSON.stringify(reqBody));
-        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+        const resp = await apiFetch(requestUrl(clientOptions, DECOUPLA_API_URL_BASE), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        }, requestTimeoutMs);
+            signal: controls.signal,
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
         const data = await resp.json();
         debug('[sync] createField response for', fieldName, JSON.stringify(data));
         return data;
     };
 
-    const updateFieldRemote = async (fieldId: string, changes: Record<string, any>) => {
+    const updateFieldRemote = async (fieldId: string, changes: Record<string, any>, controls: RequestOptions = {}) => {
         const reqBody = buildUpdateFieldRequest(fieldId, changes);
         debug('[sync] updateField request:', JSON.stringify(reqBody));
-        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+        const resp = await apiFetch(requestUrl(clientOptions, DECOUPLA_API_URL_BASE), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        }, requestTimeoutMs);
+            signal: controls.signal,
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
         const data = await resp.json();
         debug('[sync] updateField response for', fieldId, JSON.stringify(data));
         return data;
     };
 
-    const deleteFieldRemote = async (fieldId: string) => {
+    const deleteFieldRemote = async (fieldId: string, controls: RequestOptions = {}) => {
         const reqBody = { op_type: 'delete_field', field_id: fieldId };
-        const resp = await apiFetch(`${DECOUPLA_API_URL_BASE}${encodeURIComponent(workspace)}`, {
+        const resp = await apiFetch(requestUrl(clientOptions, DECOUPLA_API_URL_BASE), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${apiToken}`,
             },
             body: JSON.stringify(reqBody),
-        }, requestTimeoutMs);
+            signal: controls.signal,
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
         const data = await resp.json();
         return data;
     };
@@ -1947,10 +2045,10 @@ export const createClient = (config: InitSchema) => {
         options: Parameters<ReturnType<typeof syncWithFields>>[1] = {}
     ) => {
         const defaults = {
-            createContentType: createContentTypeRemote,
-            createField: createFieldRemote,
-            updateField: updateFieldRemote,
-            deleteField: deleteFieldRemote,
+            createContentType: (ct: ContentTypeDefinition) => createContentTypeRemote(ct, options),
+            createField: (id: string, name: string, def: FieldDefinition) => createFieldRemote(id, name, def, options),
+            updateField: (id: string, changes: Record<string, any>) => updateFieldRemote(id, changes, options),
+            deleteField: (id: string) => deleteFieldRemote(id, options),
         } as any;
 
         // Merge provided options over defaults so caller can override
@@ -1961,6 +2059,9 @@ export const createClient = (config: InitSchema) => {
 
     return {
         getEntry: getEntry(request),
+        getEntryOrThrow: getEntryOrThrow(request),
+        iterateEntries: iterateEntries(request),
+        getAllEntries: getAllEntries(request),
         getEntries: getEntries(request),
         // Note: inline preload literal inference is supported by getEntries overloads.
         inspect: inspect(request),
@@ -1968,12 +2069,12 @@ export const createClient = (config: InitSchema) => {
          * Check read access. Returns false for denied access or an empty workspace,
          * where the requested view cannot be verified. Other failures are thrown.
          */
-        validateContentView: async (view: 'live' | 'preview'): Promise<boolean> => {
+        validateContentView: async (view: 'live' | 'preview', controls: RequestOptions = {}): Promise<boolean> => {
             try {
-                const inspectResp = await inspect(request)();
+                const inspectResp = await inspect(request)(controls);
                 const firstCT = inspectResp.data.content_types[0];
                 if (!firstCT) return false;
-                await request({ op_type: 'get_entries', type: firstCT.slug || firstCT.id, limit: 1, api_type: view });
+                await request({ op_type: 'get_entries', type: firstCT.slug || firstCT.id, limit: 1, api_type: view }, controls);
                 return true;
             } catch (error) {
                 if (error instanceof ApiError && error.isAuthorizationError) return false;
@@ -1982,10 +2083,11 @@ export const createClient = (config: InitSchema) => {
         },
         sync: sync(request),
         syncWithFields: syncWithFieldsBound,
-        upload: upload({ apiToken, workspace, requestTimeoutMs }),
-        createEntry: createEntry({ apiToken, workspace, requestTimeoutMs }),
-        updateEntry: updateEntry({ apiToken, workspace, requestTimeoutMs }),
-        deleteContentType: deleteContentType({ apiToken, workspace, requestTimeoutMs }),
+        updateEntries: updateEntries(clientOptions),
+        upload: upload(clientOptions),
+        createEntry: createEntry(clientOptions),
+        updateEntry: updateEntry(clientOptions),
+        deleteContentType: deleteContentType(clientOptions),
     };
 };
 

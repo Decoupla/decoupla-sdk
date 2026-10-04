@@ -2,8 +2,8 @@ export type ApiType = 'live' | 'preview';
 export type EntryResponse<T> = {
     api_type?: ApiType;
     data: {
-        node?: T;
-        entry?: T;
+        node?: T | null;
+        entry?: T | null;
     };
 };
 export type InspectResponse = {
@@ -50,9 +50,26 @@ export type ImageObject = {
     width: number;
     height: number;
     format: string;
+    byte_size: number;
+    output: {
+        url: string;
+        width: number;
+        height: number;
+        format: string;
+        byte_size: number;
+    };
+};
+export type VideoObject = {
+    id: string;
+    width: number;
+    height: number;
+    duration: number;
+    format: string;
+    byte_size: number;
     output: {
         url: string;
     };
+    thumbnail: ImageObject | null;
 };
 export type TextObject = {
     content: string;
@@ -68,7 +85,7 @@ export type ReferenceTarget = string | {
 export type FieldDefinition = {
     type: FieldType;
     required?: boolean;
-    options?: string[];
+    options?: readonly string[];
     references?: ReferenceTarget[];
     isLabel?: boolean;
     settings?: Record<string, any>;
@@ -111,7 +128,7 @@ export type FieldDiff = {
         };
     };
 };
-export type SyncOptions = {
+export type SyncOptions = import('../modules/transport').RequestOptions & {
     fetchRemote?: () => Promise<ContentTypeDefinition[]>;
     createContentType?: (ct: ContentTypeDefinition) => Promise<any>;
     createField?: (modelId: string, fieldName: string, fieldDef: FieldDefinition) => Promise<any>;
@@ -135,3 +152,9 @@ export type PreloadField = ([string, PreloadField[]] | string)[];
 export type { BrandedContentType, ExtractFieldSchema, } from './generics';
 export { defineConfig, defineContentType } from './generics';
 export type { PreloadSpec } from './preload';
+export type { ImageFormat, ImageTransform, ImageOptions, ImageOptionsFor } from './images';
+export type { CreateFieldValues, UpdateFieldValues, FieldWriteValue, EntryIdInput, JsonValue } from './writes';
+export type { GetEntryOptions, GetEntriesOptions, PaginationOptions, SortField, SortSpec } from './queries';
+export type { VideoTransform, VideoOptions, VideoOptionsFor } from './videos';
+export type { UpdateEntriesOptions, UpdateEntriesResponse } from './queries';
+export type { RequestOptions } from '../modules/transport';

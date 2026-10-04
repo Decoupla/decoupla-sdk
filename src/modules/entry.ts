@@ -13,6 +13,7 @@ export type FieldValue =
     | number
     | boolean
     | null
+    | Date
     | FieldValue[]
     | Record<string, any>;
 
@@ -420,4 +421,25 @@ export function validateAndCoerceFieldValues(
     }
 
     return result;
+}
+
+/** Normalize only entry fields, following requested references without rewriting JSON or image metadata. */
+export function normalizeReadEntry(entry: Record<string, any>, preload: any[] = []): Record<string, any> {
+    const branches = new Map<string, any[]>();
+    for (const item of preload) {
+        const [field, inner] = typeof item === 'string' ? [item, []] : item;
+        branches.set(camelToSnake(field), inner || []);
+    }
+    const normalized: Record<string, any> = {};
+    for (const [key, value] of Object.entries(entry)) {
+        const branch = branches.get(key);
+        let resolved = value;
+        if (branch && value != null) {
+            resolved = Array.isArray(value)
+                ? value.map(child => child && typeof child === 'object' ? normalizeReadEntry(child, branch) : child)
+                : typeof value === 'object' ? normalizeReadEntry(value, branch) : value;
+        }
+        normalized[snakeToCamel(key)] = resolved;
+    }
+    return normalized;
 }

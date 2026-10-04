@@ -1,0 +1,30 @@
+import { expectType, expectError } from 'tsd';
+import { createClient, defineContentType, type VideoObject, type RequestOptions } from '.';
+const Author = defineContentType({ name: 'author', fields: { IntroVideo: { type: 'video', required: true } } });
+const Post = defineContentType({ name: 'post', fields: { HeroVideo: { type: 'video', required: true }, Clips: { type: 'video[]', required: true }, Title: { type: 'string' }, Author: { type: 'reference', references: [Author] } } });
+const controller = new AbortController();
+const controls: RequestOptions = { signal: controller.signal, requestTimeoutMs: 1000 };
+const client = createClient({ apiToken: 'test', workspace: 'test', apiUrl: 'https://example/api', fetch: globalThis.fetch });
+async function videoTypes() {
+    const post = await client.getEntryOrThrow(Post, 'id', { ...controls, preload: ['Author'], videos: { heroVideo: { thumbnail: { width: 400, format: 'webp' } }, references: { author: { introVideo: { thumbnail: { height: 80 } } } } } });
+    expectType<VideoObject>(post.data.heroVideo);
+    expectType<VideoObject | undefined>(post.data.clips[0]);
+    expectType<string | undefined>(post.data.heroVideo.thumbnail?.output.url);
+    expectType<number | undefined>(post.data.author?.introVideo.duration);
+    const bulk = await client.updateEntries(Post, { ...controls, filters: {}, values: { Title: 'New' }, preload: ['Author'], published: false });
+    expectType<number>(bulk.updatedCount);
+    expectType<string | undefined>(bulk.data[0]?.author?.introVideo.output.url);
+    for await (const entry of client.iterateEntries(Post, { ...controls, videos: { clips: { thumbnail: { format: 'avif' } } } })) expectType<VideoObject>(entry.heroVideo);
+}
+client.inspect(controls);
+client.upload(new File([], 'test.mp4'), undefined, controls);
+client.updateEntry(Post, 'id', {}, controls);
+client.deleteContentType('id', controls);
+client.validateContentView('live', controls);
+expectError(client.updateEntries(Post, { values: {} }));
+expectError(client.updateEntries(Post, { filters: {}, values: { unknown: 1 } }));
+expectError(client.updateEntries(Post, { filters: {}, values: { Clips: [5] } }));
+expectError(client.getEntries(Post, { videos: { Title: { thumbnail: { width: 80 } } } }));
+expectError(client.getEntries(Post, { videos: { HeroVideo: { width: 80 } } }));
+expectError(client.getEntries(Post, { videos: { HeroVideo: { thumbnail: { format: 'svg' } } } }));
+expectError(client.getEntries(Post, { videos: { references: { Author: { unknown: {} } } } }));

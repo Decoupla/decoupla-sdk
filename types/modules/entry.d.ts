@@ -4,7 +4,7 @@
  * Supports creating and updating entries (instances of content types)
  */
 import type { FieldDefinition } from '../types';
-export type FieldValue = string | number | boolean | null | FieldValue[] | Record<string, any>;
+export type FieldValue = string | number | boolean | null | Date | FieldValue[] | Record<string, any>;
 export type FieldValues = Record<string, FieldValue>;
 export type CreateEntryRequest = {
     op_type: 'create_entry';
@@ -104,3 +104,5 @@ export declare function coerceFieldValue(value: unknown, fdef: FieldDefinition, 
 export declare function validateAndCoerceFieldValues(fieldValues: FieldValues, fieldDefs: Record<string, FieldDefinition>, opts?: {
     isCreate?: boolean;
 }): FieldValues;
+/** Normalize only entry fields, following requested references without rewriting JSON or image metadata. */
+export declare function normalizeReadEntry(entry: Record<string, any>, preload?: any[]): Record<string, any>;

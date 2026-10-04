@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ImageObject, TextObject } from "../types";
+import type { ImageObject, VideoObject, TextObject } from "../types";
 
 // Utility functions for case conversion between snake_case and camelCase
 export function snakeToCamel(str: string): string {
@@ -18,6 +18,8 @@ export const initSchema = z.object({
     apiToken: z.string().min(1, "API Token is required"),
     workspace: z.string().min(1, "Workspace is required"),
     requestTimeoutMs: z.number().int().positive().default(30_000),
+    apiUrl: z.url().refine(url => /^https?:\/\//.test(url), "API URL must use HTTP or HTTPS").optional(),
+    fetch: z.custom<typeof fetch>(value => typeof value === "function").optional(),
 });
 
 export type InitSchema = z.input<typeof initSchema>;
@@ -40,6 +42,8 @@ export const requestSchema = z.object({
     entry_id: z.string().optional(),
     filters: z.any().optional(),
     preload: preloadType.optional(),
+    images: z.unknown().optional(),
+    videos: z.unknown().optional(),
     sort: z.array(z.tuple([z.string(), z.enum(['ASC', 'DESC'])])).optional(),
     limit: z.number().int().min(1).optional(),
     offset: z.number().int().min(0).optional(),
@@ -102,8 +106,8 @@ type InferFieldType<T extends FieldSchemaConfig> =
     : T extends { type: 'json' } ? unknown // Any valid JSON value
     : T extends { type: 'image' } ? ImageObject
     : T extends { type: 'image[]' } ? ImageObject[]
-    : T extends { type: 'video' } ? string
-    : T extends { type: 'video[]' } ? string[]
+    : T extends { type: 'video' } ? VideoObject
+    : T extends { type: 'video[]' } ? VideoObject[]
     : T extends { type: 'reference'; references: readonly (infer Ref)[] }
     ? Ref extends string
     ? string | Record<string, any> // String references resolve to generic types

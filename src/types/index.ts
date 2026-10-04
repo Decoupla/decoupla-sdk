@@ -4,8 +4,8 @@ export type ApiType = 'live' | 'preview';
 export type EntryResponse<T> = {
     api_type?: ApiType;
     data: {
-        node?: T;
-        entry?: T; // some responses historically use `entry`
+        node?: T | null;
+        entry?: T | null; // some responses historically use `entry`
     },
 }
 
@@ -58,9 +58,25 @@ export type ImageObject = {
     width: number;
     height: number;
     format: string;
+    byte_size: number;
     output: {
         url: string;
+        width: number;
+        height: number;
+        format: string;
+        byte_size: number;
     };
+};
+
+export type VideoObject = {
+    id: string;
+    width: number;
+    height: number;
+    duration: number;
+    format: string;
+    byte_size: number;
+    output: { url: string };
+    thumbnail: ImageObject | null;
 };
 
 export type TextObject = {
@@ -98,7 +114,7 @@ export type FieldDefinition = {
     type: FieldType;
     required?: boolean;
     // only valid for string/string[] types - constrains values to specific options
-    options?: string[];
+    options?: readonly string[];
     // only valid for reference/reference[]
     references?: ReferenceTarget[];
     // if true, this field will be used as the label/display name for the content type
@@ -136,7 +152,7 @@ export type FieldDiff = {
     };
 };
 
-export type SyncOptions = {
+export type SyncOptions = import('../modules/transport').RequestOptions & {
     // If provided, used to fetch the remote content types. If omitted, remote is assumed empty.
     fetchRemote?: () => Promise<ContentTypeDefinition[]>;
     // If provided, called for each content type that needs creation. If omitted, no remote calls are made.
@@ -182,3 +198,12 @@ export { defineConfig, defineContentType } from './generics';
 // Re-export new preload types
 export type { PreloadSpec } from './preload';
 // makePreloadFor removed; callers should use inline PreloadSpec or cast as needed.
+
+export type { ImageFormat, ImageTransform, ImageOptions, ImageOptionsFor } from './images';
+
+export type { CreateFieldValues, UpdateFieldValues, FieldWriteValue, EntryIdInput, JsonValue } from './writes';
+export type { GetEntryOptions, GetEntriesOptions, PaginationOptions, SortField, SortSpec } from './queries';
+
+export type { VideoTransform, VideoOptions, VideoOptionsFor } from './videos';
+export type { UpdateEntriesOptions, UpdateEntriesResponse } from './queries';
+export type { RequestOptions } from '../modules/transport';

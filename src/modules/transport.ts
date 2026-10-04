@@ -19,15 +19,31 @@ export class ApiError extends Error {
 }
 
 /** Read and validate the response within the request timeout, including its body. */
-export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30_000) {
+export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30_000, fetchImpl: typeof fetch = globalThis.fetch) {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('requestTimeoutMs must be a positive safe integer');
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const callerSignal = options.signal;
+    let timedOut = false;
+    const callerAbort = () => controller.abort(callerSignal?.reason);
+    if (callerSignal?.aborted) callerAbort();
+    else callerSignal?.addEventListener('abort', callerAbort, { once: true });
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+    const aborted = () => timedOut
+        ? new ApiError(`API request timed out after ${timeoutMs}ms`)
+        : new DOMException('Request aborted', 'AbortError');
+    let abortListener: () => void = () => {};
+    const cancellation = new Promise<never>((_, reject) => {
+        abortListener = () => reject(aborted());
+        controller.signal.addEventListener('abort', abortListener, { once: true });
+    });
     try {
-        const response = await fetch(url, { ...options, signal: controller.signal });
+        if (controller.signal.aborted) throw aborted();
+        const response = await Promise.race([fetchImpl(url, { ...options, signal: controller.signal }), cancellation]);
         let data: any;
         try {
-            data = await response.json();
-        } catch {
+            data = await Promise.race([response.json(), cancellation]);
+        } catch (error) {
+            if (controller.signal.aborted) throw aborted();
             throw new ApiError(`Invalid JSON response (HTTP ${response.status})`, response.status);
         }
         const errors: ApiErrorDetail[] = Array.isArray(data?.errors)
@@ -50,9 +66,28 @@ export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30
         }
         return { json: async () => data };
     } catch (error) {
-        if (controller.signal.aborted) throw new ApiError(`API request timed out after ${timeoutMs}ms`);
+        if (controller.signal.aborted) throw aborted();
         throw error;
     } finally {
         clearTimeout(timer);
+        callerSignal?.removeEventListener('abort', callerAbort);
+        controller.signal.removeEventListener('abort', abortListener);
     }
+}
+
+/** The read succeeded, but no entry was visible in the requested content view. */
+export class EntryNotFoundError extends Error {
+    constructor(readonly contentType: string, readonly entryId: string) {
+        super(`Entry '${entryId}' was not found in content type '${contentType}'`);
+        this.name = 'EntryNotFoundError';
+    }
+}
+
+export type RequestOptions = {
+    signal?: AbortSignal;
+    requestTimeoutMs?: number;
+};
+
+export function requestUrl(config: { apiUrl?: string; workspace: string }, fallback: string): string {
+    return `${(config.apiUrl || fallback).replace(/\/+$/, '')}/${encodeURIComponent(config.workspace)}`;
 }

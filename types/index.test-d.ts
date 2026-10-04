@@ -49,4 +49,4 @@ type MaybeExpandedChild = { id: string; title: string } | { id: string; __sys_co
 expectAssignable<Promise<{ data: Array<{ id: string; child?: MaybeExpandedChild | undefined }>; }>>(client.getEntries(LevelOne, { filters: {}, preload: [['Child', ['Child']]], limit: 1 }));
 
 // getEntry should return a promise whose data has a `child` that may be expanded or lightweight
-expectAssignable<Promise<{ data: { id: string; child?: MaybeExpandedChild | undefined } }>>(client.getEntry(LevelOne, 'some-id', { preload: [['Child', ['Child']]] }));
+expectAssignable<Promise<{ data: { id: string; child?: MaybeExpandedChild | undefined } | null }>>(client.getEntry(LevelOne, 'some-id', { preload: [['Child', ['Child']]] }));
