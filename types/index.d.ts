@@ -42,11 +42,11 @@ export type { ImageFormat, ImageTransform, ImageOptions, ImageOptionsFor } from 
 import { type RequestOptions } from "./modules/transport";
 export { ApiError, EntryNotFoundError } from "./modules/transport";
 import { type InitSchema, type RequestSchema } from "./modules/schema";
-import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
+import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, EntryPageInfo, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
 import type { UploadedFile, ImageFile, VideoFile } from "./modules/upload";
 import type { FieldValues, EntryMetadata, NormalizedEntryMetadata } from "./modules/entry";
 import type { TypeSafeFilters } from "./modules/filters";
-export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
+export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, EntryPageInfo, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
 declare const makeRequest: (options: InitSchema) => <T>(request: RequestSchema, controls?: RequestOptions) => Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse>;
 type Request = ReturnType<typeof makeRequest>;
 /**
@@ -354,7 +354,9 @@ export declare const createClient: (config: InitSchema) => {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;
         __fields: Record<string, FieldDefinition>;
-    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(contentTypeDef: T, options?: GetEntriesOptions<T, P, RC>) => Promise<RC extends true ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T["__fields"], P>> : EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>>;
+    }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false, KS extends boolean = false>(contentTypeDef: T, options?: GetEntriesOptions<T, P, RC, KS>) => Promise<(RC extends true ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T["__fields"], P>> : EntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P>>) & (KS extends true ? {
+        pageInfo: EntryPageInfo;
+    } : {})>;
     inspect: (controls?: RequestOptions) => Promise<InspectResponse>;
     /**
      * Check read access. Returns false for denied access or an empty workspace,

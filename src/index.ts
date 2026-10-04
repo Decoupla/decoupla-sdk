@@ -33,6 +33,7 @@
 
 import { normalizeVideos } from './modules/videos';
 import { normalizeImages } from './modules/images';
+import { validatePagination, readPageInfo } from './modules/pagination';
 import type { BrandedContentType } from './types/generics';
 import type { GetEntryOptions, GetEntriesOptions, PaginationOptions, UpdateEntriesOptions, UpdateEntriesResponse } from './types/queries';
 import type { CreateFieldValues, UpdateFieldValues } from './types/writes';
@@ -51,6 +52,7 @@ import type {
     EntryResponse,
     EntriesResponse,
     EntriesResponseWithCount,
+    EntryPageInfo,
     ErrorResponse,
     InspectResponse,
     ImageObject,
@@ -101,6 +103,7 @@ export type {
     EntryResponse,
     EntriesResponse,
     EntriesResponseWithCount,
+    EntryPageInfo,
     ErrorResponse,
     InspectResponse,
     ImageObject,
@@ -143,6 +146,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema, c
         limit,
         offset,
         return_count,
+        keyset, after, before, count_limit,
         images,
         videos,
     } = requestSchema.parse(request);
@@ -170,6 +174,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema, c
         limit,
         offset,
         return_count,
+        keyset, after, before, count_limit,
         images: normalizeImages(images),
         videos: normalizeVideos(videos),
     };
@@ -191,7 +196,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema, c
         ? Array.isArray(respData.data?.content_types) && respData.data.content_types.every((ct: any) =>
             typeof ct.id === 'string' && Array.isArray(ct.fields))
         : op_type === 'get_entries'
-            ? Array.isArray(respData.data) || (Array.isArray(respData.data?.entries) && typeof respData.data.count === 'number')
+            ? (keyset ? Array.isArray(respData.data?.entries) && !!respData.data?.page_info : Array.isArray(respData.data) || (Array.isArray(respData.data?.entries) && typeof respData.data.count === 'number'))
             : respData.data === null || (typeof respData.data === 'object' && !Array.isArray(respData.data));
     if (!valid) throw new ApiError(`Invalid API response for ${op_type}`);
 
@@ -666,7 +671,7 @@ const getEntryOrThrow = (request: Request) =>
         return { data: response.data };
     };
 
-/** Offset pagination uses an ID tie-breaker; changing datasets are not a snapshot. */
+/** Supports opt-in keyset traversal; changing datasets are not a snapshot. */
 const iterateEntries = (request: Request) =>
     async function* <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(
         contentTypeDef: T,
@@ -675,6 +680,23 @@ const iterateEntries = (request: Request) =>
         const { pageSize = 100, offset: initialOffset = 0, ...query } = options;
         if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new Error('pageSize must be a positive safe integer');
         if (!Number.isSafeInteger(initialOffset) || initialOffset < 0) throw new Error('offset must be a non-negative safe integer');
+        validatePagination({ ...query, offset: options.offset, limit: pageSize });
+        if (query.keyset) {
+            let after = query.after;
+            const seen = new Set<string>(after ? [after] : []);
+            while (true) {
+                const page = await getEntries(request)(contentTypeDef, { ...query, keyset: true, after, preload: options.preload, limit: pageSize });
+                for (const entry of page.data) {
+                    if (options.signal?.aborted) throw new DOMException('Request aborted', 'AbortError');
+                    yield entry;
+                }
+                if (!page.pageInfo.hasNextPage) return;
+                const cursor = page.pageInfo.endCursor;
+                if (!cursor || seen.has(cursor)) throw new ApiError('Invalid pagination response: missing or repeated next cursor');
+                seen.add(cursor);
+                after = cursor;
+            }
+        }
         let offset = initialOffset;
         const sort = [...(query.sort || [])];
         if (!sort.some(([field]) => field === 'id')) sort.push(['id', 'ASC']);
@@ -910,6 +932,7 @@ const prepareEntriesQuery = async (request: Request, contentTypeDef: BrandedCont
             preload: normalizePreload(preload),
             sort: sort.map(([field, direction]: [string, 'ASC' | 'DESC']) => [camelToSnake(field), direction]),
             return_count: optReturnCount || undefined,
+            keyset: options.keyset, after: options.after, before: options.before, count_limit: options.countLimit,
             images: options.images,
             videos: options.videos,
         };
@@ -917,14 +940,16 @@ const prepareEntriesQuery = async (request: Request, contentTypeDef: BrandedCont
 };
 
 const getEntries = (request: Request) =>
-    async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false>(
+    async <T extends { __isContentTypeDefinition: true; __definition: ContentTypeDefinition; __fields: Record<string, FieldDefinition> }, const P extends PreloadSpec<T> | undefined = undefined, RC extends boolean = false, KS extends boolean = false>(
         contentTypeDef: T,
-        options: GetEntriesOptions<T, P, RC> = {}
+        options: GetEntriesOptions<T, P, RC, KS> = {}
     ): Promise<
-        RC extends true
+        (RC extends true
             ? EntriesResponseWithCount<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
-            : EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>
+            : EntriesResponse<BuildEntryFromFieldsWithPreload<T['__fields'], P>>) &
+        (KS extends true ? { pageInfo: EntryPageInfo } : {})
     > => {
+        validatePagination(options);
         const optReturnCount = options.returnCount;
         const reqBody = await prepareEntriesQuery(request, contentTypeDef, options);
         try { debug('[getEntries] request body:', JSON.stringify(reqBody, null, 2)); } catch (e) { }
@@ -938,11 +963,15 @@ const getEntries = (request: Request) =>
         let rawEntries: any[];
         let count: number | undefined;
 
-        if (optReturnCount && rawData && !Array.isArray(rawData)) {
+        if ((optReturnCount || options.keyset) && rawData && !Array.isArray(rawData)) {
             rawEntries = rawData.entries || [];
             count = rawData.count;
         } else {
             rawEntries = rawData || [];
+        }
+
+        if (options.countLimit !== undefined && (typeof count !== 'number' || typeof rawData.count_is_exact !== 'boolean')) {
+            throw new ApiError('Invalid API response: capped count metadata is missing');
         }
 
         // Normalize field names from snake_case to camelCase
@@ -956,12 +985,15 @@ const getEntries = (request: Request) =>
                 ...resp,
                 data: normalizedEntries,
                 count: count ?? 0,
+                ...(typeof rawData?.count_is_exact === 'boolean' ? { countIsExact: rawData.count_is_exact } : {}),
+                ...(options.keyset ? { pageInfo: readPageInfo(rawData.page_info) } : {}),
             } as any;
         }
 
         return {
             ...resp,
             data: normalizedEntries,
+            ...(options.keyset ? { pageInfo: readPageInfo(rawData.page_info) } : {}),
         } as any;
     };
 

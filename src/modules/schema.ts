@@ -48,6 +48,17 @@ export const requestSchema = z.object({
     limit: z.number().int().min(1).optional(),
     offset: z.number().int().min(0).optional(),
     return_count: z.boolean().optional(),
+    keyset: z.boolean().optional(),
+    after: z.string().min(1).optional(),
+    before: z.string().min(1).optional(),
+    count_limit: z.number().int().min(1).max(1_000_000).optional(),
+}).superRefine((request, ctx) => {
+    const issue = (message: string) => ctx.addIssue({ code: 'custom', message });
+    if (request.keyset && request.offset !== undefined) issue('keyset cannot be combined with offset');
+    if ((request.after !== undefined || request.before !== undefined) && !request.keyset) issue('cursors require keyset: true');
+    if (request.after !== undefined && request.before !== undefined) issue('Specify after or before, not both');
+    if (request.keyset && request.limit !== undefined && request.limit > 500) issue('Keyset limit must be between 1 and 500');
+    if (request.count_limit !== undefined && !request.return_count) issue('countLimit requires returnCount: true');
 })
 
 export type RequestSchema = z.infer<typeof requestSchema>;

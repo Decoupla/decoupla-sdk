@@ -33,6 +33,10 @@ export declare const requestSchema: z.ZodObject<{
     limit: z.ZodOptional<z.ZodNumber>;
     offset: z.ZodOptional<z.ZodNumber>;
     return_count: z.ZodOptional<z.ZodBoolean>;
+    keyset: z.ZodOptional<z.ZodBoolean>;
+    after: z.ZodOptional<z.ZodString>;
+    before: z.ZodOptional<z.ZodString>;
+    count_limit: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 export type RequestSchema = z.infer<typeof requestSchema>;
 export type FieldSchemaConfig = {

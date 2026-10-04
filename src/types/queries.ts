@@ -18,20 +18,24 @@ export type GetEntryOptions<CT extends BrandedContentType<any>, P extends Preloa
     videos?: VideoOptionsFor<CT>;
     contentView?: 'live' | 'preview';
 };
-export type GetEntriesOptions<CT extends BrandedContentType<any>, P extends PreloadSpec<CT> | undefined = undefined, RC extends boolean = false> = GetEntryOptions<CT, P> & {
+export type GetEntriesOptions<CT extends BrandedContentType<any>, P extends PreloadSpec<CT> | undefined = undefined, RC extends boolean = false, KS extends boolean = boolean> = GetEntryOptions<CT, P> & {
     filters?: TypeSafeFilters<CT>;
     limit?: number;
-    offset?: number;
+    offset?: KS extends true ? never : number;
     sort?: SortSpec<CT>;
     returnCount?: RC;
+    keyset?: KS;
+    after?: KS extends true ? string : never;
+    before?: KS extends true ? string : never;
+    countLimit?: RC extends true ? number : never;
 };
-export type PaginationOptions<CT extends BrandedContentType<any>, P extends PreloadSpec<CT> | undefined = undefined> = Omit<GetEntriesOptions<CT, P>, 'limit' | 'returnCount'> & {
+export type PaginationOptions<CT extends BrandedContentType<any>, P extends PreloadSpec<CT> | undefined = undefined> = Omit<GetEntriesOptions<CT, P, false, boolean>, 'limit' | 'returnCount' | 'countLimit' | 'before'> & {
     /** Number of entries requested per page (default: 100). */
     pageSize?: number;
 };
 
 export type UpdateEntriesOptions<CT extends BrandedContentType<any>, P extends PreloadSpec<CT> | undefined = undefined> =
-    Omit<GetEntriesOptions<CT, P>, 'images' | 'videos' | 'returnCount'> & {
+    Omit<GetEntriesOptions<CT, P>, 'images' | 'videos' | 'returnCount' | 'keyset' | 'after' | 'before' | 'countLimit'> & {
         filters: TypeSafeFilters<CT>;
         values: UpdateFieldValues<CT>;
         published?: boolean;

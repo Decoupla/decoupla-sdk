@@ -416,6 +416,10 @@ console.log(posts.data); // Array of entries
   sort?: [string, 'ASC' | 'DESC'][]; // Sort by fields
   limit?: number;                 // Max results
   offset?: number;                // Pagination offset
+  keyset?: boolean;               // Opt into cursor pagination
+  after?: string;                 // Forward cursor (requires keyset)
+  before?: string;                // Backward cursor (requires keyset)
+  countLimit?: number;            // Count cap; requires returnCount: true
   preload?: string | string[];    // Preload references
   returnCount?: boolean;          // Include total count in response
   contentView?: 'live' | 'preview'; // Dataset to query (default: 'live')
@@ -435,6 +439,51 @@ console.log(result.count); // Total matching entries
 ```
 
 ### Iterate or fetch all entries
+
+For large collections, opt into keyset pagination. Offset calls remain compatible
+and remain the default for existing code. Deploy the backend keyset/count support
+before opting in; the SDK does not silently fall back or restart expired cursors.
+
+```ts
+const first = await client.getEntries(BlogPost, {
+  keyset: true, limit: 100, returnCount: true, countLimit: 1000,
+});
+console.log(`${first.count}${first.countIsExact === false ? '+' : ''}`);
+if (first.pageInfo.hasNextPage && first.pageInfo.endCursor) {
+  const next = await client.getEntries(BlogPost, {
+    keyset: true, limit: 100, after: first.pageInfo.endCursor,
+  });
+  if (next.pageInfo.hasPreviousPage && next.pageInfo.startCursor) {
+    await client.getEntries(BlogPost, {
+      keyset: true, limit: 100, before: next.pageInfo.startCursor,
+    });
+  }
+}
+```
+
+Keep filters, sorting, preloads, project, and content view consistent between
+pages. Start again without cursors when changing the query scope. Cursors are
+opaque, signed, and expire after seven days. Keyset reads accept a limit of 1–500;
+combine neither `offset` with keyset mode nor `after` with `before`.
+`countLimit` accepts 1–1,000,000 and requires `returnCount: true`. It also works
+with offset reads. `countIsExact` is optional when no cap is requested; capped
+responses must include the flag. Navigation needs page flags, not a count.
+
+```ts
+for await (const post of client.iterateEntries(BlogPost, {
+  keyset: true, pageSize: 100, preload: ['Author'],
+})) {
+  console.log(post.title);
+}
+const all = await client.getAllEntries(BlogPost, { keyset: true, pageSize: 100 });
+```
+
+Keyset iteration follows `hasNextPage` and the returned `endCursor`, with no extra
+request after an exact-size final page. `after` optionally resumes traversal.
+Missing/repeated next cursors or malformed metadata fail instead of looping.
+Export errors, including expired cursors, propagate to the caller; restart an
+export explicitly if desired. Concurrent edits can move entries between pages:
+neither offset nor keyset iteration provides a snapshot.
 
 `iterateEntries` lazily yields individual entries. Breaking the loop stops future
 page requests. `getAllEntries` collects those entries into `{ data: Entry[] }`.
@@ -457,9 +506,10 @@ const allPosts = await client.getAllEntries(BlogPost, {
 console.log(allPosts.data.length);
 ```
 
-`pageSize` defaults to 100 and must be a positive safe integer. `offset` optionally
-selects the starting position. These helpers use `pageSize` instead of `limit` and
-do not accept `returnCount`. They stop at a short or empty page and propagate any
+`pageSize` defaults to 100 and must be a positive safe integer. In offset mode,
+`offset` optionally selects the starting position. These helpers use `pageSize` instead of `limit` and
+do not accept `returnCount`. In offset mode they stop at a short or empty page; in
+keyset mode `pageSize` cannot exceed 500 and page flags determine completion. Both propagate any
 request failure. `getAllEntries` keeps all results in memory; use the iterator for
 large datasets.
 

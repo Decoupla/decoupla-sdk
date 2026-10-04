@@ -34,6 +34,13 @@ export type EntriesResponseWithCount<T> = {
     api_type?: ApiType;
     data: T[];
     count: number;
+    countIsExact?: boolean;
+};
+export type EntryPageInfo = {
+    startCursor: string | null;
+    endCursor: string | null;
+    hasPreviousPage: boolean;
+    hasNextPage: boolean;
 };
 export type ErrorResponse = {
     errors: Array<{
