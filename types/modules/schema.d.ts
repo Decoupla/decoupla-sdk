@@ -6,6 +6,7 @@ export declare const initSchema: z.ZodObject<{
     apiToken: z.ZodString;
     workspace: z.ZodString;
     requestTimeoutMs: z.ZodDefault<z.ZodNumber>;
+    maxRetries: z.ZodDefault<z.ZodNumber>;
     apiUrl: z.ZodOptional<z.ZodURL>;
     fetch: z.ZodOptional<z.ZodCustom<typeof fetch, typeof fetch>>;
 }, z.core.$strip>;

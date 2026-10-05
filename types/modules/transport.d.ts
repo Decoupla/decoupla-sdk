@@ -7,11 +7,20 @@ export type ApiErrorDetail = {
 export declare class ApiError extends Error {
     readonly status: number;
     readonly errors: ApiErrorDetail[];
-    constructor(message: string, status?: number, errors?: ApiErrorDetail[]);
+    /** For rate-limited requests, the seconds the API asked to wait before retrying. */
+    readonly retryAfterSeconds?: number;
+    constructor(message: string, status?: number, errors?: ApiErrorDetail[], retryAfterSeconds?: number);
     get isAuthorizationError(): boolean;
+    get isRateLimitError(): boolean;
 }
-/** Read and validate the response within the request timeout, including its body. */
-export declare function apiFetch(url: string, options: RequestInit, timeoutMs?: number, fetchImpl?: typeof fetch): Promise<{
+/** Seconds from a Retry-After header, given either as seconds or as an HTTP date. */
+export declare function parseRetryAfter(header: string | null, now?: number): number | undefined;
+/**
+ * Sends an API request, retrying rate-limited (429) responses up to `maxRetries` times.
+ * The API rejects a rate-limited request before running it, so retrying writes is safe.
+ * The timeout applies to each attempt; waiting between attempts honors the caller's signal.
+ */
+export declare function apiFetch(url: string, options: RequestInit, timeoutMs?: number, fetchImpl?: typeof fetch, maxRetries?: number): Promise<{
     json: () => Promise<any>;
 }>;
 /** The read succeeded, but no entry was visible in the requested content view. */
@@ -23,6 +32,8 @@ export declare class EntryNotFoundError extends Error {
 export type RequestOptions = {
     signal?: AbortSignal;
     requestTimeoutMs?: number;
+    /** Retries for rate-limited (429) responses; overrides the client's `maxRetries`. */
+    maxRetries?: number;
 };
 export declare function requestUrl(config: {
     apiUrl?: string;

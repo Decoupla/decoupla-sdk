@@ -189,7 +189,7 @@ const makeRequest = (options: InitSchema) => async <T>(request: RequestSchema, c
         },
         body: JSON.stringify(requestBody),
         signal: controls.signal,
-    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
+    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch, controls.maxRetries ?? options.maxRetries);
 
     const respData = await req.json();
     const valid = op_type === 'inspect'
@@ -1673,7 +1673,7 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
         },
         body: formData,
         signal: controls.signal,
-    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
+    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch, controls.maxRetries ?? options.maxRetries);
 
     const respData = await response.json() as any;
 
@@ -1784,7 +1784,7 @@ const createEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         },
         body: JSON.stringify(requestBody),
         signal: opts.signal,
-    }, opts.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
+    }, opts.requestTimeoutMs ?? requestTimeoutMs, options.fetch, opts.maxRetries ?? options.maxRetries);
 
     const respData = await response.json() as any;
 
@@ -1906,7 +1906,7 @@ const updateEntry = (options: InitSchema) => async <T extends { __isContentTypeD
         },
         body: JSON.stringify(requestBody),
         signal: opts.signal,
-    }, opts.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
+    }, opts.requestTimeoutMs ?? requestTimeoutMs, options.fetch, opts.maxRetries ?? options.maxRetries);
 
     const respData = await response.json() as any;
 
@@ -1959,7 +1959,7 @@ const updateEntries = (config: InitSchema) =>
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiToken}` },
             body: JSON.stringify(reqBody), signal: options.signal,
-        }, options.requestTimeoutMs ?? config.requestTimeoutMs, config.fetch);
+        }, options.requestTimeoutMs ?? config.requestTimeoutMs, config.fetch, options.maxRetries ?? config.maxRetries);
         const body = await response.json();
         const data = body.data;
         if (!Array.isArray(data?.entries) || !Number.isInteger(data.updated_count) || !Number.isInteger(data.failed_count) || !Array.isArray(data.errors)) {
@@ -1992,7 +1992,7 @@ const deleteContentType = (options: InitSchema) => async (contentTypeId: string,
         },
         body: JSON.stringify(requestBody),
         signal: controls.signal,
-    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch);
+    }, controls.requestTimeoutMs ?? requestTimeoutMs, options.fetch, controls.maxRetries ?? options.maxRetries);
 
     const respData = await response.json() as any;
 
@@ -2016,7 +2016,7 @@ export const createClient = (config: InitSchema) => {
             },
             body: JSON.stringify(reqBody),
             signal: controls.signal,
-        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch, controls.maxRetries ?? clientOptions.maxRetries);
         const data = await resp.json();
         debug('[sync] createContentType response:', JSON.stringify(data));
         return data;
@@ -2033,7 +2033,7 @@ export const createClient = (config: InitSchema) => {
             },
             body: JSON.stringify(reqBody),
             signal: controls.signal,
-        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch, controls.maxRetries ?? clientOptions.maxRetries);
         const data = await resp.json();
         debug('[sync] createField response for', fieldName, JSON.stringify(data));
         return data;
@@ -2050,7 +2050,7 @@ export const createClient = (config: InitSchema) => {
             },
             body: JSON.stringify(reqBody),
             signal: controls.signal,
-        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch, controls.maxRetries ?? clientOptions.maxRetries);
         const data = await resp.json();
         debug('[sync] updateField response for', fieldId, JSON.stringify(data));
         return data;
@@ -2066,7 +2066,7 @@ export const createClient = (config: InitSchema) => {
             },
             body: JSON.stringify(reqBody),
             signal: controls.signal,
-        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch);
+        }, controls.requestTimeoutMs ?? requestTimeoutMs, clientOptions.fetch, controls.maxRetries ?? clientOptions.maxRetries);
         const data = await resp.json();
         return data;
     };

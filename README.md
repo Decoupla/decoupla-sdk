@@ -1052,6 +1052,24 @@ try {
 }
 ```
 
+#### Rate limits
+
+Each workspace may make a fixed number of API requests per minute, set by its plan. Responses carry `x-ratelimit-limit`, `x-ratelimit-remaining` and `x-ratelimit-reset` headers. Over the limit, the API answers HTTP 429 with a `Retry-After` header and does not run the request.
+
+The client retries rate-limited requests automatically, waiting as long as `Retry-After` asks (at most 60 seconds per wait). Because a limited request never ran, writes are retried safely too. Set `maxRetries` on the client (default `3`) or per call, and `0` disables retrying. The request timeout applies to each attempt, and a `signal` also cancels the wait between attempts.
+
+```typescript
+const client = createClient({ apiToken, workspace, maxRetries: 5 });
+
+try {
+  await client.getEntries(Post, { maxRetries: 0 }); // Fail fast for this call
+} catch (error) {
+  if (error instanceof ApiError && error.isRateLimitError) {
+    console.warn(`Rate limited; retry in ${error.retryAfterSeconds}s`);
+  }
+}
+```
+
 `validateContentView(view)` returns `false` for authorization denial and for an empty workspace where access cannot be verified. Network, server, and malformed-response failures are thrown.
 
 Schema dry-run plans the same creations and field changes as apply without issuing mutations. Applying sync reports only completed writes and returns errors for failures; the CLI exits nonzero when sync fails. A failed inspection stops writes. Sync is not transactional across requests, so successful writes before a later failure remain applied.
@@ -1199,7 +1217,7 @@ controller.abort();
 `apiUrl` is the endpoint prefix; the client appends the encoded workspace name.
 Each client keeps its own endpoint and fetch implementation. Reads, pagination,
 writes, inspection, schema sync, uploads, and content-type deletion support
-`signal` and a per-call `requestTimeoutMs` override. Pass these in the usual options
+`signal` and per-call `requestTimeoutMs` and `maxRetries` overrides. Pass these in the usual options
 object; uploads use `upload(file, filename, controls)` and deletion uses
 `deleteContentType(id, controls)`. Creates and single-entry updates accept an options
 object instead of the publication boolean. Inspection and content-view validation

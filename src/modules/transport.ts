@@ -4,22 +4,73 @@ export type ApiErrorDetail = { field?: string; message: string; [key: string]: u
 export class ApiError extends Error {
     readonly status: number;
     readonly errors: ApiErrorDetail[];
+    /** For rate-limited requests, the seconds the API asked to wait before retrying. */
+    readonly retryAfterSeconds?: number;
 
-    constructor(message: string, status = 0, errors: ApiErrorDetail[] = []) {
+    constructor(message: string, status = 0, errors: ApiErrorDetail[] = [], retryAfterSeconds?: number) {
         super(message);
         this.name = 'ApiError';
         this.status = status;
         this.errors = errors;
+        this.retryAfterSeconds = retryAfterSeconds;
     }
 
     get isAuthorizationError(): boolean {
         return this.status === 401 || this.status === 403 ||
             this.errors.some(error => error.field === 'authorization');
     }
+
+    get isRateLimitError(): boolean {
+        return this.status === 429;
+    }
+}
+
+const MAX_RETRY_DELAY_MS = 60_000;
+
+/** Seconds from a Retry-After header, given either as seconds or as an HTTP date. */
+export function parseRetryAfter(header: string | null, now = Date.now()): number | undefined {
+    if (!header) return undefined;
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds;
+    const date = Date.parse(header);
+    return Number.isNaN(date) ? undefined : Math.max(0, Math.ceil((date - now) / 1000));
+}
+
+function retryDelayMs(error: ApiError, attempt: number): number {
+    if (error.retryAfterSeconds !== undefined) return Math.min(error.retryAfterSeconds * 1000, MAX_RETRY_DELAY_MS);
+    // Without a Retry-After, back off exponentially with jitter so parallel callers spread out.
+    return Math.min(1000 * 2 ** attempt, MAX_RETRY_DELAY_MS) * (0.5 + Math.random() / 2);
+}
+
+function wait(ms: number, signal?: AbortSignal | null): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const aborted = () => new DOMException('Request aborted', 'AbortError');
+        if (signal?.aborted) return reject(aborted());
+        const onAbort = () => { clearTimeout(timer); reject(aborted()); };
+        const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+/**
+ * Sends an API request, retrying rate-limited (429) responses up to `maxRetries` times.
+ * The API rejects a rate-limited request before running it, so retrying writes is safe.
+ * The timeout applies to each attempt; waiting between attempts honors the caller's signal.
+ */
+export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30_000, fetchImpl: typeof fetch = globalThis.fetch, maxRetries = 3) {
+    if (!Number.isSafeInteger(maxRetries) || maxRetries < 0) throw new Error('maxRetries must be a non-negative safe integer');
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await apiFetchOnce(url, options, timeoutMs, fetchImpl);
+        } catch (error) {
+            if (!(error instanceof ApiError) || !error.isRateLimitError || attempt >= maxRetries) throw error;
+            await wait(retryDelayMs(error, attempt), options.signal);
+        }
+    }
 }
 
 /** Read and validate the response within the request timeout, including its body. */
-export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30_000, fetchImpl: typeof fetch = globalThis.fetch) {
+async function apiFetchOnce(url: string, options: RequestInit, timeoutMs: number, fetchImpl: typeof fetch) {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('requestTimeoutMs must be a positive safe integer');
     const controller = new AbortController();
     const callerSignal = options.signal;
@@ -50,8 +101,11 @@ export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30
             ? data.errors.map((error: any) => ({ ...error, message: String(error?.message ?? 'Unknown API error') }))
             : [];
         if (!response.ok || errors.length || (data?.errors && !Array.isArray(data.errors))) {
-            const details = errors.map(error => `${error.field ? `${error.field}: ` : ''}${error.message}`).join('; ');
-            throw new ApiError(`API request failed (HTTP ${response.status})${details ? `: ${details}` : ''}`, response.status, errors);
+            const details = errors.length
+                ? errors.map(error => `${error.field ? `${error.field}: ` : ''}${error.message}`).join('; ')
+                : typeof data?.message === 'string' ? data.message : '';
+            const retryAfter = response.status === 429 ? parseRetryAfter(response.headers.get('retry-after')) : undefined;
+            throw new ApiError(`API request failed (HTTP ${response.status})${details ? `: ${details}` : ''}`, response.status, errors, retryAfter);
         }
         if (!data || typeof data !== 'object' || !('data' in data)) {
             throw new ApiError(`Invalid API response (HTTP ${response.status}): missing data`, response.status);
@@ -86,6 +140,8 @@ export class EntryNotFoundError extends Error {
 export type RequestOptions = {
     signal?: AbortSignal;
     requestTimeoutMs?: number;
+    /** Retries for rate-limited (429) responses; overrides the client's `maxRetries`. */
+    maxRetries?: number;
 };
 
 export function requestUrl(config: { apiUrl?: string; workspace: string }, fallback: string): string {
