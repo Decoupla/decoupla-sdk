@@ -70,7 +70,7 @@ export async function apiFetch(url: string, options: RequestInit, timeoutMs = 30
 }
 
 /** Read and validate the response within the request timeout, including its body. */
-async function apiFetchOnce(url: string, options: RequestInit, timeoutMs: number, fetchImpl: typeof fetch) {
+async function apiFetchOnce(url: string, options: RequestInit, timeoutMs: number, fetchImpl: typeof fetch, raw = false) {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error('requestTimeoutMs must be a positive safe integer');
     const controller = new AbortController();
     const callerSignal = options.signal;
@@ -90,6 +90,14 @@ async function apiFetchOnce(url: string, options: RequestInit, timeoutMs: number
     try {
         if (controller.signal.aborted) throw aborted();
         const response = await Promise.race([fetchImpl(url, { ...options, signal: controller.signal }), cancellation]);
+        if (raw) {
+            if (!response.ok) {
+                const body = await Promise.race([response.text(), cancellation]);
+                const code = /<Code>([A-Za-z0-9_]+)<\/Code>/.exec(body)?.[1];
+                throw new ApiError(`Storage upload failed (HTTP ${response.status})${code ? `: ${code}` : ''}`, response.status);
+            }
+            return response;
+        }
         let data: any;
         try {
             data = await Promise.race([response.json(), cancellation]);
@@ -127,6 +135,11 @@ async function apiFetchOnce(url: string, options: RequestInit, timeoutMs: number
         callerSignal?.removeEventListener('abort', callerAbort);
         controller.signal.removeEventListener('abort', abortListener);
     }
+}
+
+/** Raw storage responses have empty success bodies and XML errors. Never adds API credentials or retries a PUT. */
+export function storageFetch(url: string, options: RequestInit, timeoutMs = 30_000, fetchImpl: typeof fetch = globalThis.fetch): Promise<Response> {
+    return apiFetchOnce(url, options, timeoutMs, fetchImpl, true) as Promise<Response>;
 }
 
 /** The read succeeded, but no entry was visible in the requested content view. */

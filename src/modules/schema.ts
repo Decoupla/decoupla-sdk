@@ -20,6 +20,7 @@ export const initSchema = z.object({
     requestTimeoutMs: z.number().int().positive().default(30_000),
     /** Retries for rate-limited (429) responses, waiting as long as the API asks. */
     maxRetries: z.number().int().min(0).default(3),
+    uploadStrategy: z.enum(['direct', 'multipart']).default('direct'),
     apiUrl: z.url().refine(url => /^https?:\/\//.test(url), "API URL must use HTTP or HTTPS").optional(),
     fetch: z.custom<typeof fetch>(value => typeof value === "function").optional(),
 });

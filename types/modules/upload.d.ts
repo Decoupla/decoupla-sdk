@@ -29,6 +29,12 @@ export type UploadFileResponse = {
         file: UploadedFile;
     };
 };
+export type UploadOptions = import('./transport').RequestOptions & {
+    /** Defaults to direct B2 uploads; use multipart with older backends. */
+    uploadStrategy?: 'direct' | 'multipart';
+};
+/** Blobs created by server-side callers frequently omit MIME metadata. */
+export declare function uploadContentType(file: Blob, filename: string): string;
 export type UploadError = {
     field: string;
     message: string;

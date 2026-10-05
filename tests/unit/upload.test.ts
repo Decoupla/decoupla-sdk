@@ -9,7 +9,7 @@ import {
 
 describe('isSupportedImageFormat', () => {
     it('accepts common image formats', () => {
-        for (const ext of ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff']) {
+        for (const ext of ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'avif', 'svg']) {
             expect(isSupportedImageFormat(`photo.${ext}`)).toBe(true);
         }
     });
@@ -20,7 +20,6 @@ describe('isSupportedImageFormat', () => {
     });
 
     it('rejects unsupported formats', () => {
-        expect(isSupportedImageFormat('file.svg')).toBe(false);
         expect(isSupportedImageFormat('file.pdf')).toBe(false);
         expect(isSupportedImageFormat('file.txt')).toBe(false);
     });

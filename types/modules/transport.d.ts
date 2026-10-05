@@ -20,9 +20,11 @@ export declare function parseRetryAfter(header: string | null, now?: number): nu
  * The API rejects a rate-limited request before running it, so retrying writes is safe.
  * The timeout applies to each attempt; waiting between attempts honors the caller's signal.
  */
-export declare function apiFetch(url: string, options: RequestInit, timeoutMs?: number, fetchImpl?: typeof fetch, maxRetries?: number): Promise<{
+export declare function apiFetch(url: string, options: RequestInit, timeoutMs?: number, fetchImpl?: typeof fetch, maxRetries?: number): Promise<Response | {
     json: () => Promise<any>;
 }>;
+/** Raw storage responses have empty success bodies and XML errors. Never adds API credentials or retries a PUT. */
+export declare function storageFetch(url: string, options: RequestInit, timeoutMs?: number, fetchImpl?: typeof fetch): Promise<Response>;
 /** The read succeeded, but no entry was visible in the requested content view. */
 export declare class EntryNotFoundError extends Error {
     readonly contentType: string;

@@ -13,6 +13,11 @@ describe('request controls', () => {
     test('custom fetch and API URL are used for reads, writes, upload, sync and delete', async () => {
         const calls: any[] = [];
         const customFetch = (async (url: any, options: any) => {
+            if (options.method === 'PUT') {
+                expect(url).toBe('https://storage.example/upload');
+                expect(options.headers.Authorization).toBeUndefined();
+                return new Response(null, { status: 200 });
+            }
             expect(url).toBe('https://api.example/custom/a%2Fb');
             expect(options.headers.Authorization).toBe('Bearer test');
             const body = options.body instanceof FormData ? { op_type: options.body.get('op_type') } : JSON.parse(options.body);
@@ -21,6 +26,8 @@ describe('request controls', () => {
             if (body.op_type === 'get_entry') return json({ entry: metadata });
             if (body.op_type === 'get_entries') return json([]);
             if (body.op_type === 'upload_file') return json({ file: { id: 'file', type: 'video' } });
+            if (body.op_type === 'prepare_upload') return json({ upload: { upload_id: 'upload', url: 'https://storage.example/upload', content_type: 'video/mp4' } });
+            if (body.op_type === 'complete_upload') return json({ file: { id: 'file', type: 'video' } });
             if (body.op_type === 'create_content_type') return json({ content_type: { id: 'type', slug: 'post', fields: [] } });
             return json({ entry: metadata });
         }) as typeof fetch;

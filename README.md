@@ -672,6 +672,32 @@ await client.updateEntry(BlogPost, entryId, changes);
 
 Upload an image or video:
 
+Uploads default to a direct storage flow: the SDK requests a presigned PUT URL,
+sends the File or Blob to B2, and finalizes it through the workspace API. Your API
+token is sent only to Decoupla. The method returns the same media metadata as
+multipart uploads. The backend checks your organization's file-size, video and
+total storage limits before issuing the URL and again when finalizing; generated
+thumbnails count toward storage too.
+
+Deploy backend support for `prepare_upload` and `complete_upload` before upgrading
+the SDK. With older backends, set `uploadStrategy: 'multipart'` on `createClient`
+or per upload. The SDK does not fall back automatically after an upload fails.
+
+```typescript
+await client.upload(file, undefined, {
+    requestTimeoutMs: 300_000, // Per request; allow time for large uploads and processing.
+    signal: abortController.signal,
+});
+
+await client.upload(file, undefined, { uploadStrategy: 'multipart' });
+```
+
+Custom fetch implementations receive the prepare, B2 PUT and finalize requests.
+They must support absolute storage URLs, raw Blob bodies, and empty successful PUT
+responses. API rate-limit retries reuse the same upload ID during finalization;
+the SDK does not automatically retry storage PUT requests. Finalization retains
+the backend's synchronous image/video processing.
+
 ```typescript
 // From File input
 const input = document.querySelector('input[type="file"]');
@@ -685,11 +711,12 @@ const uploaded = await client.upload(blob, 'image.jpg');
 // Returns
 {
   id: string;
-  url: string;
   type: 'image' | 'video';
-  width?: number;
-  height?: number;
-  format?: string;
+  width: number;
+  height: number;
+  format: string;
+  byte_size: number;
+  // Videos also include duration: number.
 }
 ```
 

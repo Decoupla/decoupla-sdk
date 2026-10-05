@@ -43,10 +43,10 @@ import { type RequestOptions } from "./modules/transport";
 export { ApiError, EntryNotFoundError } from "./modules/transport";
 import { type InitSchema, type RequestSchema } from "./modules/schema";
 import type { EntryResponse, EntriesResponse, EntriesResponseWithCount, EntryPageInfo, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PreloadSpec, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff } from "./types";
-import type { UploadedFile, ImageFile, VideoFile } from "./modules/upload";
+import type { UploadedFile, ImageFile, VideoFile, UploadOptions } from "./modules/upload";
 import type { FieldValues, EntryMetadata, NormalizedEntryMetadata } from "./modules/entry";
 import type { TypeSafeFilters } from "./modules/filters";
-export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, EntryPageInfo, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
+export type { EntryResponse, EntriesResponse, EntriesResponseWithCount, EntryPageInfo, ErrorResponse, InspectResponse, ImageObject, VideoObject, TextObject, PreloadField, PrimitiveFieldType, ReferenceFieldType, FieldType, ReferenceTarget, FieldDefinition, ContentTypeDefinition, SyncOptions, SyncAction, SyncResult, FieldDiff, UploadedFile, UploadOptions, ImageFile, VideoFile, FieldValues, EntryMetadata, TypeSafeFilters, };
 declare const makeRequest: (options: InitSchema) => <T>(request: RequestSchema, controls?: RequestOptions) => Promise<EntryResponse<T> | EntriesResponse<T> | InspectResponse>;
 type Request = ReturnType<typeof makeRequest>;
 /**
@@ -370,7 +370,7 @@ export declare const createClient: (config: InitSchema) => {
     })[], options?: SyncOptions) => Promise<SyncResult>;
     syncWithFields: (contentTypes: Parameters<ReturnType<typeof syncWithFields>>[0], options?: Parameters<ReturnType<typeof syncWithFields>>[1]) => Promise<SyncResult>;
     updateEntries: <T extends BrandedContentType<any>, const P extends PreloadSpec<T> | undefined = undefined>(contentTypeDef: T, options: UpdateEntriesOptions<NoInferContentType<T>, P>) => Promise<UpdateEntriesResponse<BuildEntryFromFieldsWithPreload<T["__fields"], P> & NormalizedEntryMetadata>>;
-    upload: (file: File | Blob, filename?: string, controls?: RequestOptions) => Promise<UploadedFile>;
+    upload: (file: File | Blob, filename?: string, controls?: UploadOptions) => Promise<UploadedFile>;
     createEntry: <T extends {
         __isContentTypeDefinition: true;
         __definition: ContentTypeDefinition;

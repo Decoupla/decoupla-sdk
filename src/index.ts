@@ -44,7 +44,7 @@ export type { GetEntryOptions, GetEntriesOptions, PaginationOptions, SortField, 
 export type { CreateFieldValues, UpdateFieldValues, FieldWriteValue, EntryIdInput, JsonValue } from './types/writes';
 export type { ImageFormat, ImageTransform, ImageOptions, ImageOptionsFor } from './types/images';
 
-import { apiFetch, ApiError, requestUrl, type RequestOptions } from "./modules/transport";
+import { apiFetch, storageFetch, ApiError, requestUrl, type RequestOptions } from "./modules/transport";
 export { ApiError, EntryNotFoundError } from "./modules/transport";
 import { EntryNotFoundError } from "./modules/transport";
 import { initSchema, requestSchema, type InitSchema, type RequestSchema, snakeToCamel, camelToSnake } from "./modules/schema";
@@ -76,6 +76,7 @@ import type {
     ImageFile,
     VideoFile,
     UploadFileResponse,
+    UploadOptions,
 } from "./modules/upload";
 import type {
     FieldValues,
@@ -86,6 +87,7 @@ import type {
 } from "./modules/entry";
 import {
     validateFile,
+    uploadContentType,
     getFileType,
     isSupportedFileFormat,
 } from "./modules/upload";
@@ -121,6 +123,7 @@ export type {
     SyncResult,
     FieldDiff,
     UploadedFile,
+    UploadOptions,
     ImageFile,
     VideoFile,
     FieldValues,
@@ -1644,7 +1647,7 @@ const syncWithFields = (request: Request) => {
 /**
  * Upload a file (image or video) to the backend
  */
-const upload = (options: InitSchema) => async (file: File | Blob, filename?: string, controls: RequestOptions = {}): Promise<UploadedFile> => {
+const upload = (options: InitSchema) => async (file: File | Blob, filename?: string, controls: UploadOptions = {}): Promise<UploadedFile> => {
     const { apiToken, workspace, requestTimeoutMs } = options;
 
     // If Blob is provided, we need a filename
@@ -1658,6 +1661,37 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
     const validation = validateFile(new File([file], fname));
     if (!validation.valid) {
         throw new Error(validation.error);
+    }
+
+    const strategy = controls.uploadStrategy ?? options.uploadStrategy ?? 'direct';
+    if (strategy !== 'direct' && strategy !== 'multipart') throw new Error('Invalid uploadStrategy');
+    if (strategy === 'direct') {
+        const apiUrl = requestUrl(options, DECOUPLA_API_URL_BASE);
+        const timeout = controls.requestTimeoutMs ?? requestTimeoutMs;
+        const retries = controls.maxRetries ?? options.maxRetries;
+        const jsonRequest = async (body: object) => {
+            const response = await apiFetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` },
+                body: JSON.stringify(body), signal: controls.signal,
+            }, timeout, options.fetch, retries);
+            return response.json();
+        };
+        const prepared = await jsonRequest({ op_type: 'prepare_upload', content_type: uploadContentType(file, fname), byte_size: String(file.size) });
+        const staged = prepared.data?.upload;
+        if (typeof staged?.upload_id !== 'string' || typeof staged?.url !== 'string' || typeof staged?.content_type !== 'string') {
+            throw new ApiError('Invalid prepare-upload response');
+        }
+        let signedUrl: URL;
+        try { signedUrl = new URL(staged.url); } catch { throw new ApiError('Invalid storage upload URL'); }
+        if (signedUrl.protocol !== 'https:' || signedUrl.username || signedUrl.password) throw new ApiError('Invalid storage upload URL');
+        await storageFetch(staged.url, {
+            method: 'PUT', headers: { 'Content-Type': staged.content_type }, body: file,
+            credentials: 'omit', redirect: 'error', signal: controls.signal,
+        }, timeout, options.fetch);
+        const completed = await jsonRequest({ op_type: 'complete_upload', upload_id: staged.upload_id });
+        if (typeof completed.data?.file?.id !== 'string') throw new ApiError('Invalid complete-upload response');
+        return completed.data.file as UploadedFile;
     }
 
     // Create FormData

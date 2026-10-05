@@ -18,6 +18,10 @@ async function videoTypes() {
 }
 client.inspect(controls);
 client.upload(new File([], 'test.mp4'), undefined, controls);
+client.upload(new File([], 'test.mp4'), undefined, { ...controls, uploadStrategy: 'multipart' });
+createClient({ apiToken: 'test', workspace: 'test', uploadStrategy: 'direct' });
+expectError(client.upload(new File([], 'test.mp4'), undefined, { uploadStrategy: 'invalid' }));
+expectError(createClient({ apiToken: 'test', workspace: 'test', uploadStrategy: 'invalid' }));
 client.updateEntry(Post, 'id', {}, controls);
 client.deleteContentType('id', controls);
 client.validateContentView('live', controls);
