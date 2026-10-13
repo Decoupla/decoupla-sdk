@@ -668,7 +668,7 @@ await client.createEntry(BlogPost, values);
 await client.updateEntry(BlogPost, entryId, changes);
 ```
 
-### `upload(file, filename?)`
+### `upload(file, filename?, controls?)`
 
 Upload an image or video:
 
@@ -719,6 +719,31 @@ const uploaded = await client.upload(blob, 'image.jpg');
   // Videos also include duration: number.
 }
 ```
+
+To give a new image a descriptive public URL filename:
+
+```ts
+await client.upload(file, undefined, { filename: 'Red Leather Handbag' });
+await client.upload(blob, 'source.jpg', { filename: 'Red Leather Handbag' });
+```
+
+The `controls.filename` option works with both direct and multipart uploads. For a
+`File` image, the second argument can also specify the public name; the controls
+option takes precedence. For a `Blob`, the second argument remains the source
+filename used for format detection, so use the controls option for its public name.
+Omitting a public name preserves the existing UUID-based URLs.
+
+The backend normalizes the name to a lowercase ASCII stem (`red-leather-handbag`),
+strips a recognized image extension, and uses the actual output format for the
+extension. Public URLs retain the UUID prefix for uniqueness. Resized outputs
+inherit the same stem. Input is limited to 255 bytes and the normalized stem to
+120 characters; empty names, paths, traversal, percent escapes, and control
+characters are rejected. Latin accents are folded; other non-ASCII characters
+are removed, so supply a name that retains letters or numbers after normalization.
+The upload response exposes `filename` as the normalized stem. This option requires
+the filename-capable backend; deploy its migration and API before using it.
+Custom names currently apply to new images only; videos and existing-media
+renaming are outside this feature.
 
 ### `inspect()`
 

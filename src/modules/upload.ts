@@ -7,6 +7,8 @@
 export type ImageFile = {
     id: string;
     type: 'image';
+    /** Normalized public filename stem, when supplied on upload. */
+    filename?: string | null;
     width: number;
     height: number;
     format: string;
@@ -38,6 +40,8 @@ export type UploadFileResponse = {
 export type UploadOptions = import('./transport').RequestOptions & {
     /** Defaults to direct B2 uploads; use multipart with older backends. */
     uploadStrategy?: 'direct' | 'multipart';
+    /** Descriptive image filename or stem; the server determines the output extension. */
+    filename?: string;
 };
 
 /** Blobs created by server-side callers frequently omit MIME metadata. */

@@ -1656,6 +1656,7 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
     }
 
     const fname = file instanceof File ? file.name : filename!;
+    const publicFilename = controls.filename ?? (file instanceof File && getFileType(fname) === 'image' ? filename : undefined);
 
     // Validate file format
     const validation = validateFile(new File([file], fname));
@@ -1677,7 +1678,7 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
             }, timeout, options.fetch, retries);
             return response.json();
         };
-        const prepared = await jsonRequest({ op_type: 'prepare_upload', content_type: uploadContentType(file, fname), byte_size: String(file.size) });
+        const prepared = await jsonRequest({ op_type: 'prepare_upload', content_type: uploadContentType(file, fname), byte_size: String(file.size), ...(publicFilename !== undefined ? { filename: publicFilename } : {}) });
         const staged = prepared.data?.upload;
         if (typeof staged?.upload_id !== 'string' || typeof staged?.url !== 'string' || typeof staged?.content_type !== 'string') {
             throw new ApiError('Invalid prepare-upload response');
@@ -1697,6 +1698,7 @@ const upload = (options: InitSchema) => async (file: File | Blob, filename?: str
     // Create FormData
     const formData = new FormData();
     formData.append('op_type', 'upload_file');
+    if (publicFilename !== undefined) formData.append('filename', publicFilename);
     formData.append('file', file, fname);
 
     // Make the upload request
