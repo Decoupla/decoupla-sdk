@@ -146,3 +146,131 @@ describe('direct uploads', () => {
         expect(completions).toBe(2);
     });
 });
+
+describe('public image filenames', () => {
+    test('sends the image name separately from source format and returns normalized metadata', async () => {
+        const client = makeClient((async (_url: any, init: any) => {
+            if (init.method === 'PUT') return new Response(null);
+            const body = JSON.parse(init.body);
+            if (body.op_type === 'prepare_upload') {
+                expect(body.filename).toBe('Red Handbag');
+                expect(body.content_type).toBe('image/png');
+                return json({ upload: staged });
+            }
+            return json({ file: { ...media, filename: 'red-handbag' } });
+        }) as typeof fetch);
+        const uploaded = await client.upload(new File(['image'], 'source.png'), undefined, { filename: 'Red Handbag' });
+        expect(uploaded.type).toBe('image');
+        if (uploaded.type === 'image') expect(uploaded.filename).toBe('red-handbag');
+    });
+
+    test('multipart keeps the source filename while passing the public filename field', async () => {
+        const client = makeClient((async (_url: any, init: any) => {
+            expect(init.body.get('filename')).toBe('Red Handbag');
+            expect(init.body.get('file').name).toBe('source.png');
+            return json({ file: media });
+        }) as typeof fetch);
+        await client.upload(new File(['image'], 'source.png'), undefined, { filename: 'Red Handbag', uploadStrategy: 'multipart' });
+    });
+
+    test('File filename argument supports a descriptive stem without changing MIME detection', async () => {
+        const client = makeClient((async (_url: any, init: any) => {
+            if (init.method === 'PUT') return new Response(null);
+            const body = JSON.parse(init.body);
+            if (body.op_type === 'prepare_upload') {
+                expect(body.filename).toBe('product-photo');
+                expect(body.content_type).toBe('image/png');
+                return json({ upload: staged });
+            }
+            return json({ file: media });
+        }) as typeof fetch);
+        await client.upload(new File(['image'], 'source.png'), 'product-photo');
+    });
+
+    test('Blob filename remains source format metadata when no public name is supplied', async () => {
+        const client = makeClient((async (_url: any, init: any) => {
+            if (init.method === 'PUT') return new Response(null);
+            const body = JSON.parse(init.body);
+            if (body.op_type === 'prepare_upload') {
+                expect(body.filename).toBeUndefined();
+                return json({ upload: staged });
+            }
+            return json({ file: media });
+        }) as typeof fetch);
+        await client.upload(new Blob(['image']), 'source.png');
+    });
+
+    for (const uploadStrategy of ['direct', 'multipart'] as const) {
+        test(`${uploadStrategy}: Blob public names preserve source MIME detection`, async () => {
+            const client = makeClient((async (_url: any, init: any) => {
+                if (init.method === 'PUT') {
+                    expect(init.headers['Content-Type']).toBe('image/png');
+                    return new Response(null);
+                }
+                if (uploadStrategy === 'multipart') {
+                    expect(init.body.get('filename')).toBe('Product Photo');
+                    expect(init.body.get('file').name).toBe('source.PNG');
+                    return json({ file: media });
+                }
+                const body = JSON.parse(init.body);
+                if (body.op_type === 'prepare_upload') {
+                    expect(body.filename).toBe('Product Photo');
+                    expect(body.content_type).toBe('image/png');
+                    return json({ upload: staged });
+                }
+                return json({ file: media });
+            }) as typeof fetch);
+            await client.upload(new Blob(['image']), 'source.PNG', { filename: 'Product Photo', uploadStrategy });
+        });
+
+        test(`${uploadStrategy}: controls filename takes precedence over the File argument`, async () => {
+            const client = makeClient((async (_url: any, init: any) => {
+                if (init.method === 'PUT') return new Response(null);
+                if (uploadStrategy === 'multipart') {
+                    expect(init.body.get('filename')).toBe('chosen-name');
+                    expect(init.body.get('file').name).toBe('source.png');
+                    return json({ file: media });
+                }
+                const body = JSON.parse(init.body);
+                if (body.op_type === 'prepare_upload') {
+                    expect(body.filename).toBe('chosen-name');
+                    return json({ upload: staged });
+                }
+                return json({ file: media });
+            }) as typeof fetch);
+            await client.upload(new File(['image'], 'source.png'), 'other-name', { filename: 'chosen-name', uploadStrategy });
+        });
+
+        test(`${uploadStrategy}: legacy video filename arguments do not request custom names`, async () => {
+            const video = { ...media, type: 'video', format: 'mp4', duration: 1 };
+            const client = makeClient((async (_url: any, init: any) => {
+                if (init.method === 'PUT') return new Response(null);
+                if (uploadStrategy === 'multipart') {
+                    expect(init.body.has('filename')).toBe(false);
+                    expect(init.body.get('file').name).toBe('source.mp4');
+                    return json({ file: video });
+                }
+                const body = JSON.parse(init.body);
+                if (body.op_type === 'prepare_upload') {
+                    expect(body.filename).toBeUndefined();
+                    expect(body.content_type).toBe('video/mp4');
+                    return json({ upload: { ...staged, content_type: 'video/mp4' } });
+                }
+                return json({ file: video });
+            }) as typeof fetch);
+            await client.upload(new File(['video'], 'source.mp4'), 'legacy-name.mp4', { uploadStrategy });
+        });
+    }
+
+    test('filename validation errors stop before uploading bytes', async () => {
+        let calls = 0;
+        const client = makeClient((async (_url: any, init: any) => {
+            calls++;
+            expect(JSON.parse(init.body).filename).toBe('../photo');
+            return new Response(JSON.stringify({ errors: [{ field: 'filename', message: 'Invalid filename' }] }), { status: 400 });
+        }) as typeof fetch);
+        await expect(client.upload(new File(['image'], 'source.png'), undefined, { filename: '../photo' })).rejects.toThrow('Invalid filename');
+        expect(calls).toBe(1);
+    });
+
+});

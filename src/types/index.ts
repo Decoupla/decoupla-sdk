@@ -62,6 +62,8 @@ export type ErrorResponse = {
 
 // --- Field Value Types ---
 export type ImageObject = {
+    /** Normalized public filename stem, if supplied during upload. */
+    filename?: string | null;
     id: string;
     width: number;
     height: number;

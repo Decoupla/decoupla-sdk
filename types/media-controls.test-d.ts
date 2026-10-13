@@ -32,3 +32,12 @@ expectError(client.getEntries(Post, { videos: { Title: { thumbnail: { width: 80 
 expectError(client.getEntries(Post, { videos: { HeroVideo: { width: 80 } } }));
 expectError(client.getEntries(Post, { videos: { HeroVideo: { thumbnail: { format: 'svg' } } } }));
 expectError(client.getEntries(Post, { videos: { references: { Author: { unknown: {} } } } }));
+
+client.upload(new File([], 'source.png'), undefined, { filename: 'red-handbag' });
+expectError(client.upload(new File([], 'source.png'), undefined, { filename: 123 }));
+
+client.upload(new Blob([]), 'source.png', { filename: 'red-handbag', uploadStrategy: 'multipart' });
+async function imageFilenameTypes() {
+    const uploaded = await client.upload(new File([], 'source.png'), undefined, { filename: 'red-handbag' });
+    if (uploaded.type === 'image') expectType<string | null | undefined>(uploaded.filename);
+}
